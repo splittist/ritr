@@ -1,0 +1,16 @@
+{
+  "title": "Table display workbench",
+  "author": "ritr fixtures",
+  "seed": 7,
+  "paragraphs": [
+    { "text": "Schedule of obligations", "heading_level": 1 },
+    { "text": "This document combines merged cells, numbered obligations and a nested table." },
+    {
+      "text": "Deliver the materials within thirty days. This longer obligation should wrap naturally within the merged cell while retaining its generated number and hanging indentation.",
+      "numbering": { "level": 0 }
+    },
+    { "text": "Use recyclable packaging.", "numbering": { "level": 1 } },
+    { "text": "Pay the agreed amount after acceptance.", "numbering": { "level": 0 } },
+    { "text": "The table structure is preserved when its text is edited." }
+  ]
+}

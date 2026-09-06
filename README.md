@@ -54,6 +54,8 @@ transaction. Save As creates a new verified DOCX and refuses existing paths.
   inspection, tables/hyperlinks, revision boundaries, and opaque content codes.
 - Generated multilevel numbers and bullets, style-linked headings, restart and
   continuation handling, plus approximate paragraph and hanging indentation.
+- Table grids, horizontal/vertical merges, nested tables, approximate widths and
+  borders, with source-bound table/cell inspection and the same safe text editing.
 - Insert/delete/replace within text spans, previewable workspace transactions,
   literal search, protected-match reporting, and session undo/redo.
 - Electron/React desktop with a CodeMirror Reveal Codes projection and inspector.
@@ -107,5 +109,8 @@ comparisons. Try the new display features with:
 ```powershell
 npm start -- fixtures/generated/lists.docx fixtures/generated/legal.docx fixtures/generated/headings.docx
 ```
+
+[Milestone 3](docs/milestone-3.md) adds readable tables. Try it with
+`npm start -- fixtures/generated/tables.docx`.
 
 The [fixture guide](fixtures/README.md) records provenance and generation.

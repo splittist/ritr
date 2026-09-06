@@ -3,6 +3,7 @@ import { child, descendants, isWord, wordAttr, type XmlNode } from '../package/x
 import { Styles } from './styles';
 import { Numbering } from './numbering';
 import { Paragraphs, type Paragraph } from './paragraph';
+import { buildBlocks, type Block } from './blocks';
 
 export type Formatting = Record<string, string>;
 export interface SourceBinding {
@@ -42,6 +43,7 @@ export interface Story {
   label: string;
   tokens: Token[];
   paragraphs: Paragraph[];
+  blocks: Block[];
 }
 export interface DocumentModel {
   stories: Story[];
@@ -132,6 +134,7 @@ export function readDocument(pkg: DocxPackage): DocumentModel {
         label: `${kind}${recordId === undefined ? '' : ` ${recordId}`}`,
         tokens: [],
         paragraphs: [],
+        blocks: [],
       };
       const paragraphs = new Paragraphs(styles, numbering);
       let numberingUncertain = false;
@@ -313,7 +316,29 @@ export function readDocument(pkg: DocxPackage): DocumentModel {
         }
         if (['tbl', 'tr', 'tc', 'hyperlink'].includes(name)) {
           code(node, name, 'structure', 'open');
-          for (const n of node.children) walk(n, context);
+          const props = name === 'hyperlink' ? undefined : child(node, `${name}Pr`);
+          const revised =
+            props &&
+            descendants(props).some(
+              (n) =>
+                isWord(n) &&
+                [
+                  'tblPrChange',
+                  'trPrChange',
+                  'tcPrChange',
+                  'cellMerge',
+                  'cellIns',
+                  'cellDel',
+                  'ins',
+                  'del',
+                ].includes(n.local),
+            );
+          for (const n of node.children)
+            walk(n, {
+              ...context,
+              reason:
+                context.reason ?? (revised ? 'Tracked table structure is preserved' : undefined),
+            });
           code(node, `/${name}`, 'structure', 'close');
           return;
         }
@@ -353,6 +378,9 @@ export function readDocument(pkg: DocxPackage): DocumentModel {
         });
       }
       walk(container);
+      story.blocks = buildBlocks(container, story.tokens, (message) =>
+        diagnostics.push({ severity: 'warning', code: 'table-display', part, message }),
+      );
       stories.push(story);
     }
   }

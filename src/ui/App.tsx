@@ -3,7 +3,7 @@ import type { DesktopApi, Snapshot } from '../desktop/protocol';
 import type { ChangePreview, SearchMatch } from '../engine/workspace';
 import type { Token } from '../engine/document';
 import type { PartDifference } from '../package/docx';
-import { RevealEditor } from './RevealEditor';
+import { StoryView } from './StoryView';
 
 declare global {
   interface Window {
@@ -186,7 +186,7 @@ export function App() {
                 <span>Select text to edit. Click a code to inspect its source.</span>
                 <span>{document?.dirty ? 'Unsaved changes' : 'Saved snapshot'}</span>
               </div>
-              <RevealEditor story={story} codes={codes} onSelect={select} />
+              <StoryView story={story} codes={codes} onSelect={select} />
             </>
           ) : (
             <section className="welcome">
@@ -381,6 +381,20 @@ export function App() {
               <span className="status">{selected.category}</span>
               <h3>Source binding</h3>
               <pre>{JSON.stringify(selected.source, null, 2)}</pre>
+              {(['table', 'row', 'cell'] as const).map((kind) =>
+                selected.details[kind] ? (
+                  <div key={kind}>
+                    <h3>
+                      {kind === 'table'
+                        ? 'Table properties'
+                        : kind === 'row'
+                          ? 'Row properties'
+                          : 'Cell properties'}
+                    </h3>
+                    <pre>{JSON.stringify(selected.details[kind], null, 2)}</pre>
+                  </div>
+                ) : null,
+              )}
               {selected.paragraph && (
                 <>
                   <h3>Paragraph properties</h3>

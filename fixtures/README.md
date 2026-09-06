@@ -17,6 +17,11 @@ metadata may vary; reproducibility here means document features, not ZIP identit
 - `headings`: numbering inherited from Heading1–Heading4 styles.
 - `lists`: bullets, multilevel numbering, start overrides, independent lists,
   alphabetic/Roman formats, and inherited/direct indentation with wrapped text.
+- `tables`: merged header and vertical cells, numbered cell paragraphs, nested
+  table, direct borders/margins/shading, and a borderless signature table.
+
+`tables` uses a docxfix seed plus independent synthetic XML augmentation in
+`scripts/table-fixture.ts`. Regenerate it with `npm run fixtures -- tables`.
 
 `lists` starts as a docxfix document, then `scripts/list-fixture.ts` applies
 explicit synthetic XML variants for features outside its input spec. That script

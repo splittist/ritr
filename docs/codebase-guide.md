@@ -71,6 +71,17 @@ The renderer receives generated labels and measurements; it does not run counter
 The Word comparison findings and exact supported scope are recorded in
 [Milestone 2](milestone-2.md).
 
+For tables, start with `tests/table.test.ts`. `blocks.ts` builds a hierarchy over
+half-open ranges in the existing story token stream; it does not duplicate or
+replace the text model. `table.ts` resolves grid coordinates, merged cells and
+direct display properties. Cells contain blocks, so nested tables use the same
+representation. Unsupported geometry retains a diagnosed linear projection.
+
+`StoryView.tsx` renders HTML tables and groups adjacent text blocks into embedded
+`RevealEditor` instances. `table-layout.ts` converts source measurements into
+approximate CSS. Selecting cell text still submits the existing `TextEdit`;
+neither HTML nor CodeMirror becomes the document's source of truth.
+
 ## Preservation and identity
 
 The package owns its original byte buffers. A no-edit save returns a copy of
@@ -119,8 +130,8 @@ into commands. That requires paragraph and formatting-boundary semantics first.
 
 The next substantial slice should be direct typing within a span followed by
 paragraph split/join. Structural identity management comes before widening the
-editing surface. A full block/run graph will become useful then; the current
-semantic projection is deliberately smaller than the long-term model.
+editing surface. The read-only block hierarchy now exists, but is not yet a
+structural editing graph; run mutation and identity remapping remain future work.
 
 ## Tradeoffs to revisit
 

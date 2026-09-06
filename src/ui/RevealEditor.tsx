@@ -46,10 +46,12 @@ export function RevealEditor({
   story,
   codes,
   onSelect,
+  embedded = false,
 }: {
   story: Story;
   codes: boolean;
   onSelect: (token: Token) => void;
+  embedded?: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const select = useRef(onSelect);
@@ -178,5 +180,5 @@ export function RevealEditor({
     });
     return () => view.destroy();
   }, [story, codes]);
-  return <div className="reveal-editor" ref={host} />;
+  return <div className={`reveal-editor${embedded ? ' embedded' : ''}`} ref={host} />;
 }

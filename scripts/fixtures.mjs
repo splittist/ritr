@@ -14,8 +14,8 @@ mkdirSync('fixtures/generated', { recursive: true });
 const names = process.argv.slice(2);
 for (const name of names.length
   ? names
-  : ['plain', 'review', 'sections', 'legal', 'headings', 'lists']) {
-  if (!['plain', 'review', 'sections', 'legal', 'headings', 'lists'].includes(name))
+  : ['plain', 'review', 'sections', 'legal', 'headings', 'lists', 'tables']) {
+  if (!['plain', 'review', 'sections', 'legal', 'headings', 'lists', 'tables'].includes(name))
     throw new Error(`Unknown fixture: ${name}`);
   const result = spawnSync(
     python,
@@ -35,6 +35,12 @@ for (const name of names.length
   );
   if (result.status !== 0)
     throw new Error(`docxfix failed for ${name}: ${result.error ?? result.status}`);
+}
+if (!names.length || names.includes('tables')) {
+  const result = spawnSync(process.execPath, ['--import', 'tsx', 'scripts/table-fixture.ts'], {
+    stdio: 'inherit',
+  });
+  if (result.status !== 0) throw new Error('Table fixture augmentation failed');
 }
 if (!names.length || names.includes('lists')) {
   const result = spawnSync(process.execPath, ['--import', 'tsx', 'scripts/list-fixture.ts'], {

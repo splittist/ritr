@@ -17,6 +17,7 @@ const app = await electron.launch({
     'fixtures/generated/sections.docx',
     'fixtures/generated/review.docx',
     'fixtures/generated/lists.docx',
+    'fixtures/generated/tables.docx',
   ],
   env,
 });
@@ -28,7 +29,7 @@ try {
   const errors = [];
   page.on('pageerror', (error) => errors.push(String(error)));
   await page.getByRole('heading', { name: 'plain.docx', exact: true }).waitFor();
-  assert.equal(await page.locator('.document-link').count(), 4);
+  assert.equal(await page.locator('.document-link').count(), 5);
   assert.ok((await page.locator('.code-token').count()) > 0);
   await page.locator('.editable-span').first().click();
   await page.getByLabel('Text content').fill('A revised opening with café and 😀.');
@@ -131,9 +132,51 @@ try {
   await page.screenshot({ path: join(output, 'numbering-codes.png'), fullPage: true });
   const codeLabels = await page.locator('.list-marker').allTextContents();
   assert.deepEqual(codeLabels, expectedLabels.slice(0, codeLabels.length));
+  await page.getByRole('button', { name: /tables.docx/ }).click();
+  await page.getByRole('heading', { name: 'tables.docx', exact: true }).waitFor();
+  await page.getByLabel('Reveal codes', { exact: true }).uncheck();
+  assert.equal(await page.locator('.document-table').count(), 3);
+  assert.equal(await page.locator('td[colspan="3"]').count(), 1);
+  assert.equal(await page.locator('td[rowspan="2"]').count(), 1);
+  const cellWrapping = await page
+    .locator('.editable-span')
+    .filter({ hasText: 'Deliver the materials' })
+    .evaluate((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      return [...range.getClientRects()].map((r) => ({ left: r.left, top: r.top }));
+    });
+  assert.ok(cellWrapping.length > 1, 'Numbered text wraps within the merged cell');
+  assert.ok(
+    Math.abs(cellWrapping[0].left - cellWrapping[1].left) < 1,
+    'Cell continuation retains hanging indentation',
+  );
+  await page.locator('.editable-span').filter({ hasText: 'Written confirmation' }).click();
+  await page.getByLabel('Text content').fill('Signed confirmation');
+  await page.getByRole('button', { name: 'Preview text edit' }).click();
+  await page.getByRole('button', { name: 'Apply transaction' }).click();
+  await page.locator('.editable-span').filter({ hasText: 'Signed confirmation' }).waitFor();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await page.locator('.editable-span').filter({ hasText: 'Written confirmation' }).waitFor();
+  await page.getByRole('button', { name: 'Redo', exact: true }).click();
+  await page.locator('.editable-span').filter({ hasText: 'Signed confirmation' }).waitFor();
+  await page.screenshot({ path: join(output, 'tables-clean.png'), fullPage: true });
+  await page.getByLabel('Reveal codes', { exact: true }).check();
+  await page.getByRole('button', { name: 'Cell 2, 1', exact: true }).first().click();
+  await page.getByRole('heading', { name: 'Cell properties', exact: true }).waitFor();
+  await page.screenshot({ path: join(output, 'tables-codes.png'), fullPage: true });
+  const tablePath = join(output, 'tables-edited.docx');
+  await app.evaluate(({ dialog }, path) => {
+    dialog.showSaveDialog = async () => ({ canceled: false, filePath: path });
+  }, tablePath);
+  await page.getByRole('button', { name: 'Save As…' }).click();
+  await page.waitForFunction(() =>
+    document.querySelector('footer')?.textContent.includes('Saved and verified'),
+  );
+  assert.ok((await readFile(tablePath)).length > 0);
   assert.deepEqual(errors, []);
   console.log(
-    `Desktop smoke passed: editing, preview, multi-story replacement, undo/redo, Save As, code inspection, filtering. Artifacts: ${output}`,
+    `Desktop smoke passed: editing, preview, multi-story replacement, undo/redo, Save As, code inspection, lists and merged/nested tables. Artifacts: ${output}`,
   );
 } finally {
   await app.close();
