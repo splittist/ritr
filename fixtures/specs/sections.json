@@ -1,0 +1,22 @@
+{
+  "title": "ritr multi-story fixture",
+  "author": "ritr fixtures",
+  "seed": 3,
+  "paragraphs": [
+    { "text": "Main report", "heading_level": 1 },
+    { "text": "Replace this phrase in the report." },
+    { "text": "Appendix", "heading_level": 1 }
+  ],
+  "sections": [
+    {
+      "start_paragraph": 0,
+      "headers": { "default": "Replace this phrase in the header." },
+      "footers": { "default": "Report footer" }
+    },
+    {
+      "start_paragraph": 2,
+      "orientation": "landscape",
+      "headers": { "default": "Appendix header" }
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "title": "ritr review preservation fixture",
+  "author": "ritr fixtures",
+  "seed": 2,
+  "paragraphs": [
+    { "text": "Review notes", "heading_level": 1 },
+    {
+      "text": "The receiving party shall protect the information.",
+      "tracked_changes": [
+        {
+          "change_type": "deletion",
+          "text": "protect",
+          "author": "Reviewer",
+          "date": "2026-01-01T12:00:00"
+        },
+        {
+          "change_type": "insertion",
+          "text": "safeguard",
+          "insert_after": "shall ",
+          "author": "Reviewer",
+          "date": "2026-01-01T12:00:00"
+        }
+      ]
+    },
+    {
+      "text": "Replace this phrase near a comment.",
+      "comments": [
+        {
+          "text": "An ordinary review note.",
+          "anchor_text": "comment",
+          "author": "Reviewer",
+          "date": "2026-01-01T12:00:00"
+        }
+      ]
+    },
+    { "text": "First obligation", "numbering": { "level": 0 } }
+  ]
+}

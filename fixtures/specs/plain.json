@@ -1,0 +1,10 @@
+{
+  "title": "ritr plain-text fixture",
+  "author": "ritr fixtures",
+  "seed": 1,
+  "paragraphs": [
+    { "text": "A small document with a clear beginning." },
+    { "text": "Replace this phrase. Keep everything else." },
+    { "text": "Unicode: café, Zürich, 日本語 and 😀." }
+  ]
+}
