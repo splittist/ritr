@@ -381,6 +381,45 @@ export function App() {
               <span className="status">{selected.category}</span>
               <h3>Source binding</h3>
               <pre>{JSON.stringify(selected.source, null, 2)}</pre>
+              {selected.paragraph && (
+                <>
+                  <h3>Paragraph properties</h3>
+                  <p className="muted">
+                    {selected.paragraph.styleId ? `Style: ${selected.paragraph.styleId}. ` : ''}
+                    Indentation shown approximately; source measurements below are in twips (1/20
+                    point).
+                  </p>
+                  <pre>
+                    {JSON.stringify(
+                      {
+                        layout: selected.paragraph.layout,
+                        propertySources: selected.paragraph.propertySources,
+                      },
+                      null,
+                      2,
+                    )}
+                  </pre>
+                  {selected.paragraph.numbering && (
+                    <>
+                      <h3>Generated list label</h3>
+                      <pre>
+                        {JSON.stringify(
+                          { ...selected.paragraph.numbering, definitionXml: undefined },
+                          null,
+                          2,
+                        )}
+                      </pre>
+                      <h3>Numbering definition</h3>
+                      <pre>{selected.paragraph.numbering.definitionXml ?? 'Unresolved'}</pre>
+                    </>
+                  )}
+                  {selected.paragraph.warnings.map((warning, i) => (
+                    <p key={i} className="diagnostic warning">
+                      {warning}
+                    </p>
+                  ))}
+                </>
+              )}
               <h3>Source XML</h3>
               <pre>{String(selected.details.xml)}</pre>
               <p className="muted">

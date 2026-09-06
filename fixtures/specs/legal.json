@@ -1,0 +1,14 @@
+{
+  "title": "Legal list numbering",
+  "author": "ritr fixtures",
+  "seed": 4,
+  "paragraphs": [
+    { "text": "Definitions", "numbering": { "level": 0 } },
+    { "text": "Agreement means this document.", "numbering": { "level": 1 } },
+    { "text": "Party means a signatory.", "numbering": { "level": 1 } },
+    { "text": "An unnumbered interruption." },
+    { "text": "Obligations", "numbering": { "level": 0 } },
+    { "text": "Delivery within thirty days.", "numbering": { "level": 1 } },
+    { "text": "Packaging requirements.", "numbering": { "level": 2 } }
+  ]
+}

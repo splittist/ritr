@@ -1,0 +1,16 @@
+{
+  "title": "Style-linked heading numbering",
+  "author": "ritr fixtures",
+  "seed": 5,
+  "paragraphs": [
+    { "text": "Introduction", "heading_level": 1 },
+    { "text": "An ordinary paragraph between headings." },
+    { "text": "Scope", "heading_level": 1 },
+    { "text": "Deliverables", "heading_level": 2 },
+    { "text": "First detail", "heading_level": 3 },
+    { "text": "Second detail", "heading_level": 3 },
+    { "text": "Sub-detail", "heading_level": 4 },
+    { "text": "Timing", "heading_level": 2 },
+    { "text": "Restarted detail", "heading_level": 3 }
+  ]
+}

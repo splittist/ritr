@@ -247,6 +247,29 @@ h3 {
 .cm-line {
   padding: 0 !important;
 }
+.list-marker {
+  display: inline-block;
+  font: inherit;
+  line-height: inherit;
+  text-indent: 0;
+  color: #31564b;
+  background: transparent;
+  border: 0;
+  border-radius: 2px;
+  padding: 0;
+  vertical-align: baseline;
+  white-space: pre;
+}
+.list-marker:hover,
+.list-marker:focus-visible {
+  background: #e3ecdd;
+}
+.list-marker.unresolved {
+  color: #a46b32;
+}
+.paragraph-line {
+  position: relative;
+}
 .code-token {
   font:
     10px 'Segoe UI',

@@ -38,6 +38,27 @@ untouched. This is not modern-comment editing support.
 The plain-text view is a **review projection**, not Word's final/accepted text:
 it includes visible revision text and placeholders for opaque content.
 
+## Paragraph display
+
+Generated numbers and bullets appear in both views. They are selectable display
+objects, excluded from editable spans and search. The inspector exposes their
+definition and property sources. Ordinary text commands do not renumber or
+rewrite list definitions. Explicit paragraph metadata includes resolved list
+membership and left/right/first-line indentation in source twips.
+
+Common list formats, style-linked numbering, start/level overrides and Word's
+restart/continuation behavior are supported. Shared abstract definitions share
+counter streams; independent abstract definitions have separate streams.
+Counters are scoped to individual stories. Unsupported/ambiguous numbering is
+shown as `?` with diagnostics, including following paragraph-bearing opaque or
+structurally revised content in a story.
+
+Indentation is approximate in the UI. Display values are bounded, long labels
+may widen hanging space, and inline Reveal Codes affect wrapping. Exact source
+values remain visible in the inspector. This is not pagination or full layout;
+custom tabs, character-unit indentation and right-to-left layout are not fully
+resolved. See [Milestone 2](milestone-2.md) for formats and verification.
+
 ## Save and validation
 
 No-edit saves preserve the original archive bytes. Edited saves recompress the
@@ -73,7 +94,8 @@ preserved but never fetched. This is not full OPC/OOXML schema validation.
 ## Not implemented yet
 
 Paragraph split/join; cross-run text edits; direct formatting changes; list,
-table, hyperlink, and section restructuring; full style/numbering resolution;
+table, hyperlink, and section restructuring; full style/layout resolution and
+exotic numbering formats;
 comment or revision mutation; command palette; granular code-category filters;
 paginated preview; in-place saves; persisted workspaces or undo journals;
 installer packaging. The desktop is an inspector/editor prototype, not yet a

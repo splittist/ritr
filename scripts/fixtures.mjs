@@ -11,7 +11,12 @@ const python = join(
 );
 if (!existsSync(python)) throw new Error(`Missing docxfix virtual environment: ${python}`);
 mkdirSync('fixtures/generated', { recursive: true });
-for (const name of ['plain', 'review', 'sections']) {
+const names = process.argv.slice(2);
+for (const name of names.length
+  ? names
+  : ['plain', 'review', 'sections', 'legal', 'headings', 'lists']) {
+  if (!['plain', 'review', 'sections', 'legal', 'headings', 'lists'].includes(name))
+    throw new Error(`Unknown fixture: ${name}`);
   const result = spawnSync(
     python,
     [
@@ -30,4 +35,10 @@ for (const name of ['plain', 'review', 'sections']) {
   );
   if (result.status !== 0)
     throw new Error(`docxfix failed for ${name}: ${result.error ?? result.status}`);
+}
+if (!names.length || names.includes('lists')) {
+  const result = spawnSync(process.execPath, ['--import', 'tsx', 'scripts/list-fixture.ts'], {
+    stdio: 'inherit',
+  });
+  if (result.status !== 0) throw new Error('List fixture augmentation failed');
 }

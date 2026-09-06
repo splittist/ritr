@@ -13,6 +13,16 @@ metadata may vary; reproducibility here means document features, not ZIP identit
 - `plain`: paragraphs, Unicode, ordinary replacement.
 - `review`: headings, lists, deletion/insertion, comment anchors and comment parts.
 - `sections`: section properties, landscape page, headers and footers.
+- `legal`: interrupted multilevel legal list with lower-level restarts.
+- `headings`: numbering inherited from Heading1–Heading4 styles.
+- `lists`: bullets, multilevel numbering, start overrides, independent lists,
+  alphabetic/Roman formats, and inherited/direct indentation with wrapped text.
+
+`lists` starts as a docxfix document, then `scripts/list-fixture.ts` applies
+explicit synthetic XML variants for features outside its input spec. That script
+does not use the numbering resolver it tests. Run `npm run fixtures -- lists` to
+regenerate just that fixture, or `npm run fixtures -- legal headings lists` for
+the complete numbering corpus. Ordinary tests need only the checked-in files.
 
 The tests also construct small OOXML packages in `tests/helpers.ts` to isolate
 formatting, relationships, tables, notes, opaque extensions, corruption, and

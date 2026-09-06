@@ -16,6 +16,7 @@ const app = await electron.launch({
     'fixtures/generated/plain.docx',
     'fixtures/generated/sections.docx',
     'fixtures/generated/review.docx',
+    'fixtures/generated/lists.docx',
   ],
   env,
 });
@@ -27,7 +28,7 @@ try {
   const errors = [];
   page.on('pageerror', (error) => errors.push(String(error)));
   await page.getByRole('heading', { name: 'plain.docx', exact: true }).waitFor();
-  assert.equal(await page.locator('.document-link').count(), 3);
+  assert.equal(await page.locator('.document-link').count(), 4);
   assert.ok((await page.locator('.code-token').count()) > 0);
   await page.locator('.editable-span').first().click();
   await page.getByLabel('Text content').fill('A revised opening with café and 😀.');
@@ -76,6 +77,60 @@ try {
   assert.equal(await page.locator('.code-token:not(.opaque)').count(), 0);
   await page.getByRole('button', { name: /review.docx/ }).click();
   assert.ok((await page.locator('.protected-span').count()) > 0);
+  await page.getByRole('button', { name: /lists.docx/ }).click();
+  await page.getByRole('heading', { name: 'lists.docx', exact: true }).waitFor();
+  const expectedLabels = [
+    '1.',
+    '1.1.',
+    '1.2.',
+    '2.',
+    '2.1.',
+    '•',
+    '◦',
+    '•',
+    '5.',
+    '6.',
+    '1.',
+    'AA)',
+    'BB)',
+    'IV.',
+  ];
+  // CodeMirror virtualizes offscreen lines. Check the initial visible prefix,
+  // then scroll to verify the final labels rather than counting detached DOM.
+  const visibleLabels = await page.locator('.list-marker').allTextContents();
+  assert.deepEqual(visibleLabels, expectedLabels.slice(0, visibleLabels.length));
+  assert.ok(visibleLabels.length > 5);
+  await page.locator('main').evaluate((el) => {
+    el.scrollTop = el.scrollHeight;
+  });
+  await page.getByRole('button', { name: 'List label IV.', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'List label BB)', exact: true }).waitFor();
+  await page.locator('main').evaluate((el) => {
+    el.scrollTop = 0;
+  });
+  await page.getByRole('button', { name: 'List label 1.1.', exact: true }).click();
+  await page.getByRole('heading', { name: 'Generated list label', exact: true }).waitFor();
+  await page.screenshot({ path: join(output, 'numbering-clean.png'), fullPage: true });
+  const wrapping = await page
+    .locator('.editable-span')
+    .nth(2)
+    .evaluate((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      return [...range.getClientRects()].map((r) => ({ left: r.left, top: r.top, width: r.width }));
+    });
+  console.log('Wrapped list text geometry:', JSON.stringify(wrapping));
+  assert.ok(wrapping.length > 1, 'Long numbered paragraph wraps');
+  assert.ok(
+    Math.abs(wrapping[0].left - wrapping[1].left) < 1,
+    'Wrapped text aligns under the first line text',
+  );
+  await page.getByLabel('Reveal codes', { exact: true }).check();
+  assert.ok((await page.locator('.list-marker').count()) > 0);
+  assert.ok((await page.locator('.code-token').count()) > 0);
+  await page.screenshot({ path: join(output, 'numbering-codes.png'), fullPage: true });
+  const codeLabels = await page.locator('.list-marker').allTextContents();
+  assert.deepEqual(codeLabels, expectedLabels.slice(0, codeLabels.length));
   assert.deepEqual(errors, []);
   console.log(
     `Desktop smoke passed: editing, preview, multi-story replacement, undo/redo, Save As, code inspection, filtering. Artifacts: ${output}`,

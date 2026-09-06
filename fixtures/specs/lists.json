@@ -1,0 +1,35 @@
+{
+  "title": "Numbering and paragraph shape",
+  "author": "ritr fixtures",
+  "seed": 6,
+  "paragraphs": [
+    { "text": "List labels and paragraph shape", "heading_level": 1 },
+    { "text": "First obligation", "numbering": { "level": 0 } },
+    {
+      "text": "A detailed obligation with enough text to wrap onto a second line in the workbench. The continuation should align with the paragraph text so that the outline remains easy to scan and compare with Microsoft Word.",
+      "numbering": { "level": 1 }
+    },
+    { "text": "An ordinary paragraph interrupts the list without restarting it." },
+    { "text": "Second detailed obligation", "numbering": { "level": 1 } },
+    { "text": "Second obligation", "numbering": { "level": 0 } },
+    { "text": "A restarted lower level", "numbering": { "level": 1 } },
+    {
+      "text": "A bullet with a hanging indent and enough words to wrap onto multiple lines. Its marker stays separate from the editable text, and the wrapped lines should line up with this text.",
+      "numbering": { "level": 0 }
+    },
+    { "text": "A nested bullet", "numbering": { "level": 1 } },
+    { "text": "A second top-level bullet", "numbering": { "level": 0 } },
+    { "text": "A list explicitly starting at five", "numbering": { "level": 0 } },
+    { "text": "Continues at six", "numbering": { "level": 0 } },
+    { "text": "An independent list starts at one", "numbering": { "level": 0 } },
+    {
+      "text": "An indented quotation. This paragraph has left and right indentation inherited from a style, plus a first-line indent applied directly. Its source properties remain visible in the inspector."
+    },
+    {
+      "text": "A hanging paragraph without a list marker. This deliberately long paragraph demonstrates that indentation belongs to paragraphs in general, independently of numbering and bullets, so its wrapped lines should start farther right than its first line."
+    },
+    { "text": "Alphabetic numbering at twenty-seven", "numbering": { "level": 0 } },
+    { "text": "Alphabetic numbering at twenty-eight", "numbering": { "level": 0 } },
+    { "text": "Roman numbering", "numbering": { "level": 0 } }
+  ]
+}

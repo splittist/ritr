@@ -45,6 +45,10 @@ previews. Undo/redo moves whole transactions between two stacks.
 | `src/package/xml.ts` | Namespace-aware XML parsing, source ranges, lexical text patches |
 | `src/package/docx.ts` | Immutable package snapshots, relationships, content types, diagnostics, byte comparison |
 | `src/engine/document.ts` | Read-only semantic interpretation: stories, source-bound spans, code tokens, editing policy |
+| `src/engine/styles.ts` | Shared style index, inheritance chains, document defaults |
+| `src/engine/numbering.ts` | List definitions, style links, label formats and story counter streams |
+| `src/engine/paragraph.ts` | Paragraph list membership and indentation with property provenance |
+| `src/ui/paragraph-layout.ts` | Source indentation to bounded, approximate display geometry |
 | `src/engine/workspace.ts` | Exclusive mutation API: search, preview, commit, history, events, saved state |
 | `src/io/save.ts` | Filesystem boundary: stage, validate, sync, publish a new file or directory |
 | `src/cli.ts` | Thin command-line client of the same engine |
@@ -56,7 +60,16 @@ previews. Undo/redo moves whole transactions between two stacks.
 
 The useful core nouns are `DocxPackage`, `Story`, `TextSpan`, `TextEdit`,
 `ChangePreview`, and `Workspace`. There is no service container, plugin system,
-generic command bus, or custom reactive framework to learn.
+generic command bus, or custom reactive framework to learn. `Paragraph` and
+`ListLabel` add resolved display metadata without widening the mutation API.
+
+For numbering, start with `tests/numbering.test.ts`. `Numbering` reads definitions
+once; each story creates `Paragraphs` with a fresh `NumberingSequence`. Property
+resolution happens before label generation, and indentation merges document
+defaults, list properties, paragraph styles, then direct paragraph properties.
+The renderer receives generated labels and measurements; it does not run counters.
+The Word comparison findings and exact supported scope are recorded in
+[Milestone 2](milestone-2.md).
 
 ## Preservation and identity
 

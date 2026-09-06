@@ -1,5 +1,8 @@
 import { DocxPackage, type Diagnostic } from '../package/docx';
 import { child, descendants, isWord, wordAttr, type XmlNode } from '../package/xml';
+import { Styles } from './styles';
+import { Numbering } from './numbering';
+import { Paragraphs, type Paragraph } from './paragraph';
 
 export type Formatting = Record<string, string>;
 export interface SourceBinding {
@@ -24,6 +27,8 @@ export interface CodeToken {
   category: 'structure' | 'format' | 'review' | 'opaque';
   source: SourceBinding;
   details: Record<string, unknown>;
+  role?: 'paragraph-start' | 'paragraph-end' | 'list-label';
+  paragraph?: Paragraph;
 }
 export interface TextToken {
   kind: 'text';
@@ -36,6 +41,7 @@ export interface Story {
   kind: 'body' | 'header' | 'footer' | 'footnote' | 'endnote' | 'comment';
   label: string;
   tokens: Token[];
+  paragraphs: Paragraph[];
 }
 export interface DocumentModel {
   stories: Story[];
@@ -53,41 +59,13 @@ function properties(node: XmlNode | undefined): Formatting {
 }
 
 /** Small, explicit style cascade; numbering/table/conditional styles are not resolved. */
-function styleResolver(pkg: DocxPackage) {
-  const link = pkg.relationships.find(
-    (r) => r.source === pkg.mainPart && r.type.endsWith('/styles') && !r.external,
-  );
-  const root = link && pkg.names().includes(link.target) ? pkg.xml(link.target) : undefined;
-  const styles = new Map(
-    (root?.children.filter((n) => isWord(n, 'style')) ?? []).map((n) => [
-      wordAttr(n, 'styleId'),
-      n,
-    ]),
-  );
-  const defaults = properties(
-    root &&
-      child(child(root, 'docDefaults') ?? root, 'rPrDefault')?.children.find((n) =>
-        isWord(n, 'rPr'),
-      ),
-  );
-  const defaultParagraph = [...styles.values()].find(
-    (n) =>
-      wordAttr(n, 'type') === 'paragraph' &&
-      ['1', 'true', 'on'].includes(wordAttr(n, 'default') ?? ''),
-  );
-  function resolve(id: string | undefined, seen = new Set<string>()): Formatting {
-    if (!id || seen.has(id)) return {};
-    seen.add(id);
-    const style = styles.get(id);
-    if (!style) return {};
-    return {
-      ...resolve(child(style, 'basedOn') && wordAttr(child(style, 'basedOn')!, 'val'), seen),
-      ...properties(child(style, 'rPr')),
-    };
-  }
+function styleResolver(styles: Styles) {
+  const defaults = properties(styles.defaults('rPr'));
+  const resolve = (id: string | undefined): Formatting =>
+    Object.assign({}, ...styles.chain(id, []).map((style) => properties(child(style, 'rPr'))));
   return (paragraphStyle?: string, runStyle?: string): Formatting => ({
     ...defaults,
-    ...resolve(paragraphStyle ?? (defaultParagraph && wordAttr(defaultParagraph, 'styleId'))),
+    ...resolve(paragraphStyle ?? styles.defaultParagraph),
     ...resolve(runStyle),
   });
 }
@@ -95,7 +73,9 @@ function styleResolver(pkg: DocxPackage) {
 export function readDocument(pkg: DocxPackage): DocumentModel {
   const stories: Story[] = [];
   const diagnostics = [...pkg.diagnostics];
-  const inherit = styleResolver(pkg);
+  const styles = new Styles(pkg);
+  const numbering = new Numbering(pkg, styles);
+  const inherit = styleResolver(styles);
   const globallyProtected = pkg.diagnostics.some(
     (d) => d.code === 'signed-package' || d.severity === 'error',
   );
@@ -151,7 +131,10 @@ export function readDocument(pkg: DocxPackage): DocumentModel {
         kind,
         label: `${kind}${recordId === undefined ? '' : ` ${recordId}`}`,
         tokens: [],
+        paragraphs: [],
       };
+      const paragraphs = new Paragraphs(styles, numbering);
+      let numberingUncertain = false;
       const binding = (node: XmlNode): SourceBinding => ({
         part,
         nodeId: node.id,
@@ -159,7 +142,7 @@ export function readDocument(pkg: DocxPackage): DocumentModel {
         end: node.end,
       });
       const code = (node: XmlNode, label: string, category: CodeToken['category'], extra = '') => {
-        story.tokens.push({
+        const token: CodeToken = {
           kind: 'code',
           id: `${node.id}:${extra || label}`,
           label,
@@ -169,7 +152,9 @@ export function readDocument(pkg: DocxPackage): DocumentModel {
             attributes: node.attrs,
             xml: xml.slice(node.start, Math.min(node.end, node.start + 4000)),
           },
-        });
+        };
+        story.tokens.push(token);
+        return token;
       };
       // Inspect the full XML, including opaque wrappers: a field can start inside
       // unsupported markup and end in an otherwise editable run several paragraphs later.
@@ -196,6 +181,7 @@ export function readDocument(pkg: DocxPackage): DocumentModel {
         } = {},
       ): void {
         if (!isWord(node)) {
+          if (descendants(node).some((n) => isWord(n, 'p'))) numberingUncertain = true;
           code(node, `Opaque: ${node.name}`, 'opaque');
           return;
         }
@@ -208,14 +194,48 @@ export function readDocument(pkg: DocxPackage): DocumentModel {
           const props = child(node, 'pPr');
           const style = props && child(props, 'pStyle');
           const paragraphStyle = style && wordAttr(style, 'val');
-          code(
+          if (
+            context.reason ||
+            (props &&
+              descendants(props).some(
+                (n) =>
+                  ['pPrChange', 'numberingChange', 'ins', 'del'].includes(n.local) && isWord(n),
+              ))
+          )
+            numberingUncertain = true;
+          const paragraph = paragraphs.read(
+            node,
+            part,
+            numberingUncertain
+              ? ['Numbering may be affected by preceding opaque or revision content']
+              : [],
+          );
+          story.paragraphs.push(paragraph);
+          for (const message of paragraph.warnings)
+            diagnostics.push({
+              severity: 'warning',
+              code: 'paragraph-display',
+              part,
+              message: `${node.id}: ${message}`,
+            });
+          const opening = code(
             node,
             paragraphStyle ? `Paragraph · ${paragraphStyle}` : 'Paragraph',
             'structure',
             'open',
           );
+          opening.role = 'paragraph-start';
+          opening.paragraph = paragraph;
+          // The prefix is a generated object, never an editable text span.
+          if (paragraph.numbering) {
+            const marker = code(node, paragraph.numbering.text, 'structure', 'list-label');
+            marker.role = 'list-label';
+            marker.paragraph = paragraph;
+          }
           for (const n of node.children) walk(n, { ...context, paragraphStyle });
-          code(node, '¶', 'structure', 'close');
+          const closing = code(node, '¶', 'structure', 'close');
+          closing.role = 'paragraph-end';
+          closing.paragraph = paragraph;
           return;
         }
         if (name === 'r') {
@@ -324,6 +344,7 @@ export function readDocument(pkg: DocxPackage): DocumentModel {
           return;
         }
         code(node, `Opaque: ${node.name}`, 'opaque');
+        if (descendants(node).some((n) => isWord(n, 'p'))) numberingUncertain = true;
         diagnostics.push({
           severity: 'info',
           code: 'opaque-content',
@@ -348,13 +369,15 @@ export function plainText(story: Story): string {
     .map((t) =>
       t.kind === 'text'
         ? t.span.text
-        : t.label === '¶' || t.label === 'br' || t.label === 'cr'
-          ? '\n'
-          : t.label === 'tab'
-            ? '\t'
-            : t.category === 'opaque'
-              ? `[${t.label}]`
-              : '',
+        : t.role === 'list-label'
+          ? t.label + (t.paragraph?.numbering?.suffix === 'nothing' ? '' : '\t')
+          : t.label === '¶' || t.label === 'br' || t.label === 'cr'
+            ? '\n'
+            : t.label === 'tab'
+              ? '\t'
+              : t.category === 'opaque'
+                ? `[${t.label}]`
+                : '',
     )
     .join('');
 }

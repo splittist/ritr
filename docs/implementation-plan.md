@@ -1,7 +1,8 @@
 # Initial Implementation Plan
 
 Implementation update: the first working vertical slice is recorded in
-[Milestone 1](milestone-1.md). The phases below remain the broader roadmap;
+[Milestone 1](milestone-1.md); numbering and indentation display are recorded in
+[Milestone 2](milestone-2.md). The phases below remain the broader roadmap;
 several have partial implementations rather than completed exit conditions.
 
 This plan favors vertical, testable slices. Each phase should leave behind a

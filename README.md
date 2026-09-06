@@ -52,6 +52,8 @@ transaction. Save As creates a new verified DOCX and refuses existing paths.
 - Preservation-oriented ZIP/OOXML package layer and per-part byte comparison.
 - Body, header/footer, note and comment stories, source-bound text, formatting
   inspection, tables/hyperlinks, revision boundaries, and opaque content codes.
+- Generated multilevel numbers and bullets, style-linked headings, restart and
+  continuation handling, plus approximate paragraph and hanging indentation.
 - Insert/delete/replace within text spans, previewable workspace transactions,
   literal search, protected-match reporting, and session undo/redo.
 - Electron/React desktop with a CodeMirror Reveal Codes projection and inspector.
@@ -98,5 +100,12 @@ npm run fixtures      # Regenerate fixtures using ../docxfix/.venv
 Electron bridge, so use `npm start` for the working application. Desktop test
 screenshots and output documents go to ignored `test-results/` directories.
 
-The [milestone report](docs/milestone-1.md) records verification and the remaining
-roadmap. The [fixture guide](fixtures/README.md) records provenance and generation.
+The [first milestone report](docs/milestone-1.md) records the editing foundation;
+[Milestone 2](docs/milestone-2.md) documents numbering, indentation and Word
+comparisons. Try the new display features with:
+
+```powershell
+npm start -- fixtures/generated/lists.docx fixtures/generated/legal.docx fixtures/generated/headings.docx
+```
+
+The [fixture guide](fixtures/README.md) records provenance and generation.
