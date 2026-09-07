@@ -1,10 +1,20 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { DesktopApi, Snapshot } from '../desktop/protocol';
 import type { ChangePreview, SearchMatch } from '../engine/workspace';
 import type { Token } from '../engine/document';
 import type { PartDifference } from '../package/docx';
 import { StoryView } from './StoryView';
 import { validInlineText, type InlineDraft, type InlineEditing } from './inline-edit';
+import { CommandPalette, captureCommandFocus } from './CommandPalette';
+import {
+  commands,
+  commandReason,
+  invokeCommand,
+  shortcutCommand,
+  type CommandActions,
+  type CommandContext,
+  type CommandId,
+} from './commands';
 
 declare global {
   interface Window {
@@ -31,10 +41,16 @@ export function App() {
   const [error, setError] = useState('');
   const [inlineDraft, setInlineDraft] = useState<InlineDraft & { revision: number }>();
   const [restore, setRestore] = useState<InlineEditing['restore']>();
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const paletteFocus = useRef<() => void>(() => {});
+  const running = useRef(false);
+  const searchInput = useRef<HTMLInputElement>(null);
   const document = state.documents.find((d) => d.id === documentId) ?? state.documents[0];
   const story = document?.model.stories.find((s) => s.id === storyId) ?? document?.model.stories[0];
   const api = window.ritr;
   async function run(action: () => Promise<void>) {
+    if (running.current) return;
+    running.current = true;
     setBusy(true);
     setError('');
     try {
@@ -42,6 +58,7 @@ export function App() {
     } catch (e) {
       setError(String(e).replace(/^Error: /, ''));
     } finally {
+      running.current = false;
       setBusy(false);
     }
   }
@@ -55,9 +72,9 @@ export function App() {
     setSelected(undefined);
     setReport(undefined);
   }
-  function select(token: Token) {
+  function select(token?: Token) {
     setSelected(token);
-    setDraft(token.kind === 'text' ? token.span.text : '');
+    setDraft(token?.kind === 'text' ? token.span.text : '');
   }
   const inline: InlineEditing = {
     busy,
@@ -97,18 +114,7 @@ export function App() {
         setInlineDraft({ ...inlineDraft, text, anchor, head });
       }
     },
-    cancel: () => {
-      if (busy) return;
-      if (inlineDraft)
-        setRestore({
-          spanId: inlineDraft.spanId,
-          anchor: inlineDraft.anchor,
-          head: inlineDraft.head,
-        });
-      setInlineDraft(undefined);
-      setPreview(undefined);
-      setError('');
-    },
+    cancel: () => execute('edit.cancelInline'),
   };
   useEffect(() => {
     if (!inlineDraft) return;
@@ -125,21 +131,166 @@ export function App() {
         setState(await api.snapshot());
       });
   }, []);
-  const open = () =>
-    api &&
-    run(async () => {
-      refresh(await api.open());
+  const selectionReason =
+    selected?.kind !== 'text'
+      ? 'Select an editable text span.'
+      : !selected.span.editable
+        ? (selected.span.reason ?? 'This text is protected.')
+        : undefined;
+  const inlineToken = story?.tokens.find(
+    (t) => t.kind === 'text' && t.span.id === inlineDraft?.spanId,
+  );
+  const context: CommandContext = {
+    connected: !!api,
+    busy,
+    hasDocument: !!document,
+    canUndo: state.canUndo,
+    canRedo: state.canRedo,
+    hasInlineDraft: !!inlineDraft,
+    selectionReason,
+    editReason: inlineDraft
+      ? inlineToken?.kind !== 'text'
+        ? 'The draft span is no longer available.'
+        : inlineDraft.text === inlineToken.span.text
+          ? 'The draft has no changes.'
+          : undefined
+      : (selectionReason ??
+        (selected?.kind === 'text' && draft === selected.span.text
+          ? 'Edit the selected span first.'
+          : undefined)),
+    hasQuery: !!query,
+    hasPreview: !!preview,
+    hasChanges: !!preview?.edits.length,
+  };
+  const actions: CommandActions = {
+    'commands.open': () => {
+      if (!paletteOpen) paletteFocus.current = captureCommandFocus();
+      setPaletteOpen((open) => !open);
+    },
+    'file.open': async () => {
+      refresh(await api!.open());
       setMessage('Documents opened. Select text or a code to inspect it.');
-    });
-  const save = () =>
-    api &&
-    document &&
-    run(async () => {
-      const result = await api.save(document.id);
+    },
+    'file.saveAs': async () => {
+      const result = await api!.save(document!.id);
       refresh(result.snapshot);
       setReport(result.report);
       if (result.path) setMessage(`Saved and verified ${result.path}`);
+    },
+    'history.undo': async () => refresh(await api!.undo()),
+    'history.redo': async () => refresh(await api!.redo()),
+    'edit.inline': () => {
+      if (selected?.kind === 'text') inline.start(selected.span.id, 0, selected.span.text.length);
+    },
+    'edit.preview': async () => {
+      if (inlineDraft && inlineToken?.kind === 'text') {
+        setPreview(
+          await api!.previewEdit({
+            documentId: document!.id,
+            spanId: inlineDraft.spanId,
+            from: 0,
+            to: inlineToken.span.text.length,
+            text: inlineDraft.text,
+            expectedRevision: inlineDraft.revision,
+          }),
+        );
+      } else if (selected?.kind === 'text') {
+        setPreview(
+          await api!.previewEdit({
+            documentId: document!.id,
+            spanId: selected.span.id,
+            from: 0,
+            to: selected.span.text.length,
+            text: draft,
+            expectedRevision: document!.revision,
+          }),
+        );
+      }
+    },
+    'edit.cancelInline': () => {
+      if (inlineDraft)
+        setRestore({
+          spanId: inlineDraft.spanId,
+          anchor: inlineDraft.anchor,
+          head: inlineDraft.head,
+        });
+      setInlineDraft(undefined);
+      setPreview(undefined);
+    },
+    'search.focus': () => {
+      searchInput.current?.focus();
+      searchInput.current?.select();
+    },
+    'search.find': async () => {
+      setMatches(await api!.search(query, caseSensitive));
+      setPreview(undefined);
+    },
+    'search.replace': async () =>
+      setPreview(await api!.previewReplace(query, replacement, caseSensitive)),
+    'transaction.apply': async () => {
+      refresh(await api!.commit(preview!.id));
+      if (inlineDraft)
+        setRestore({
+          spanId: inlineDraft.spanId,
+          anchor: inlineDraft.anchor,
+          head: inlineDraft.head,
+        });
+      setMessage('Transaction applied. Undo reverses the complete change.');
+    },
+    'transaction.dismiss': () => setPreview(undefined),
+    'view.codes': () => setCodes((shown) => !shown),
+    'document.compare': async () => setReport(await api!.report(document!.id)),
+  };
+  const currentCommands = useRef({ context, actions, paletteOpen });
+  currentCommands.current = { context, actions, paletteOpen };
+  function execute(id: CommandId) {
+    void invokeCommand(
+      id,
+      () => ({
+        ...currentCommands.current.context,
+        busy: currentCommands.current.context.busy || running.current,
+      }),
+      () =>
+        id === 'commands.open'
+          ? currentCommands.current.actions[id]()
+          : run(async () => {
+              await currentCommands.current.actions[id]();
+            }),
+    ).then((reason) => {
+      if (reason) setError(reason);
     });
+  }
+  function commandProps(id: CommandId) {
+    const command = commands.find((c) => c.id === id)!;
+    const reason = commandReason(id, context);
+    return {
+      children: command.label,
+      disabled: !!reason,
+      title:
+        reason ??
+        `${command.description}${'shortcuts' in command ? ` (${command.shortcuts.join(' / ')})` : ''}`,
+      'aria-keyshortcuts':
+        'shortcuts' in command
+          ? command.shortcuts.map((key) => key.replace('Ctrl', 'Control')).join(' ')
+          : undefined,
+      onClick: () => execute(id),
+    };
+  }
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      const target = event.target instanceof HTMLElement ? event.target : undefined;
+      const nativeText =
+        !!target?.closest('input, textarea') ||
+        (!!target?.isContentEditable && !target.closest('.cm-content'));
+      const id = shortcutCommand(event, nativeText);
+      if (!id) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!currentCommands.current.paletteOpen || id === 'commands.open') execute(id);
+    };
+    window.addEventListener('keydown', keydown, true);
+    return () => window.removeEventListener('keydown', keydown, true);
+  }, []);
   return (
     <div className="app">
       <header className="topbar">
@@ -147,25 +298,12 @@ export function App() {
           ritr<span>DOCUMENT WORKBENCH</span>
         </div>
         <div className="toolbar">
-          <button className="primary" disabled={!api || busy || !!inlineDraft} onClick={open}>
-            Open documents
-          </button>
-          <button disabled={!document || busy || !!inlineDraft} onClick={save}>
-            Save As…
-          </button>
+          <button className="primary" {...commandProps('file.open')} />
+          <button {...commandProps('file.saveAs')} />
           <span className="divider" />
-          <button
-            disabled={!state.canUndo || busy}
-            onClick={() => void run(async () => refresh(await api!.undo()))}
-          >
-            Undo
-          </button>
-          <button
-            disabled={!state.canRedo || busy}
-            onClick={() => void run(async () => refresh(await api!.redo()))}
-          >
-            Redo
-          </button>
+          <button {...commandProps('history.undo')} />
+          <button {...commandProps('history.redo')} />
+          <button {...commandProps('commands.open')}>Commands</button>
         </div>
         <span className="local-badge">● Local workspace</span>
       </header>
@@ -244,7 +382,9 @@ export function App() {
                 <input
                   type="checkbox"
                   checked={codes}
-                  onChange={(e) => setCodes(e.target.checked)}
+                  disabled={!!commandReason('view.codes', context)}
+                  title={commandReason('view.codes', context)}
+                  onChange={() => execute('view.codes')}
                 />{' '}
                 Reveal codes
               </label>
@@ -261,33 +401,8 @@ export function App() {
               {inlineDraft && (
                 <div className="inline-toolbar" aria-label="Inline draft">
                   <span>Inline draft · one text span · not yet applied</span>
-                  <button
-                    disabled={busy}
-                    onClick={() =>
-                      void run(async () => {
-                        const token = story.tokens.find(
-                          (t) => t.kind === 'text' && t.span.id === inlineDraft.spanId,
-                        );
-                        if (token?.kind !== 'text')
-                          throw new Error('The draft span is no longer available.');
-                        setPreview(
-                          await api!.previewEdit({
-                            documentId: document!.id,
-                            spanId: inlineDraft.spanId,
-                            from: 0,
-                            to: token.span.text.length,
-                            text: inlineDraft.text,
-                            expectedRevision: inlineDraft.revision,
-                          }),
-                        );
-                      })
-                    }
-                  >
-                    Preview inline edit
-                  </button>
-                  <button disabled={busy} onClick={inline.cancel}>
-                    Cancel inline edit
-                  </button>
+                  <button {...commandProps('edit.preview')}>Preview inline edit</button>
+                  <button {...commandProps('edit.cancelInline')} />
                 </div>
               )}
               <StoryView story={story} codes={codes} onSelect={select} inline={inline} />
@@ -301,7 +416,7 @@ export function App() {
                 Open one or several Word documents. Inspect formatting, explore stories, and preview
                 changes across your workspace.
               </p>
-              <button className="primary" disabled={!api || busy} onClick={open}>
+              <button className="primary" {...commandProps('file.open')}>
                 Open your first document
               </button>
               <div className="welcome-notes">
@@ -317,6 +432,7 @@ export function App() {
             <div className="section-heading">WORKSPACE SEARCH & REPLACE</div>
             <div className="search-fields">
               <input
+                ref={searchInput}
                 aria-label="Find text"
                 placeholder="Find literal text…"
                 value={query}
@@ -335,27 +451,8 @@ export function App() {
                   setPreview(undefined);
                 }}
               />
-              <button
-                disabled={!query || !document || busy || !!inlineDraft}
-                onClick={() =>
-                  void run(async () => {
-                    setMatches(await api!.search(query, caseSensitive));
-                    setPreview(undefined);
-                  })
-                }
-              >
-                Find
-              </button>
-              <button
-                disabled={!query || !document || busy || !!inlineDraft}
-                onClick={() =>
-                  void run(async () =>
-                    setPreview(await api!.previewReplace(query, replacement, caseSensitive)),
-                  )
-                }
-              >
-                Preview replacement
-              </button>
+              <button {...commandProps('search.find')} />
+              <button {...commandProps('search.replace')} />
             </div>
             <div className="search-options">
               <label>
@@ -415,25 +512,8 @@ export function App() {
                 </div>
               ))}
               {!preview.edits.length && <p>No editable changes.</p>}
-              <button
-                className="primary"
-                disabled={!preview.edits.length || busy}
-                onClick={() =>
-                  void run(async () => {
-                    refresh(await api!.commit(preview.id));
-                    if (inlineDraft)
-                      setRestore({
-                        spanId: inlineDraft.spanId,
-                        anchor: inlineDraft.anchor,
-                        head: inlineDraft.head,
-                      });
-                    setMessage('Transaction applied. Undo reverses the complete change.');
-                  })
-                }
-              >
-                Apply transaction
-              </button>
-              <button onClick={() => setPreview(undefined)}>Dismiss</button>
+              <button className="primary" {...commandProps('transaction.apply')} />
+              <button {...commandProps('transaction.dismiss')}>Dismiss</button>
             </section>
           )}
         </main>
@@ -451,6 +531,9 @@ export function App() {
                 {selected.span.editable ? 'Editable' : 'Preserved · read-only'}
               </span>
               {selected.span.reason && <p>{selected.span.reason}</p>}
+              <button className="full" {...commandProps('edit.inline')}>
+                Edit inline
+              </button>
               <label className="field-label" htmlFor="span-text">
                 Text content
               </label>
@@ -458,29 +541,12 @@ export function App() {
                 id="span-text"
                 value={draft}
                 disabled={!selected.span.editable || busy || !!inlineDraft}
-                onChange={(e) => setDraft(e.target.value)}
+                onChange={(e) => {
+                  setDraft(e.target.value);
+                  setPreview(undefined);
+                }}
               />
-              <button
-                className="primary full"
-                disabled={
-                  !selected.span.editable || busy || !!inlineDraft || draft === selected.span.text
-                }
-                onClick={() =>
-                  void run(async () =>
-                    setPreview(
-                      await api!.previewEdit({
-                        documentId: document!.id,
-                        spanId: selected.span.id,
-                        from: 0,
-                        to: selected.span.text.length,
-                        text: draft,
-                      }),
-                    ),
-                  )
-                }
-              >
-                Preview text edit
-              </button>
+              <button className="primary full" {...commandProps('edit.preview')} />
               <h3>Direct formatting</h3>
               <pre>{JSON.stringify(selected.span.direct, null, 2)}</pre>
               <h3>Inherited formatting</h3>
@@ -559,13 +625,7 @@ export function App() {
           {document && (
             <section className="diagnostics">
               <div className="section-heading">PRESERVATION</div>
-              <button
-                className="full"
-                disabled={busy}
-                onClick={() => void run(async () => setReport(await api!.report(document.id)))}
-              >
-                Compare package parts
-              </button>
+              <button className="full" {...commandProps('document.compare')} />
               {report && (
                 <div className="part-report">
                   <p>
@@ -598,6 +658,14 @@ export function App() {
         {busy ? 'Working…' : error || message}
         <span>ritr / 0.1 · text editing prototype</span>
       </footer>
+      {paletteOpen && (
+        <CommandPalette
+          context={context}
+          onClose={() => setPaletteOpen(false)}
+          onExecute={execute}
+          restoreFocus={paletteFocus.current}
+        />
+      )}
     </div>
   );
 }

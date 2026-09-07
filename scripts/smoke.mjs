@@ -47,9 +47,45 @@ try {
   await page.getByRole('heading', { name: 'plain.docx', exact: true }).waitFor();
   assert.equal(await page.locator('.document-link').count(), 6);
   assert.ok((await page.locator('.code-token').count()) > 0);
+  // Registry availability, modal focus, and keyboard navigation use the same actions as buttons.
+  const searchCommands = page.getByRole('combobox', { name: 'Search commands' });
+  const palette = page.getByRole('dialog', { name: 'Commands', exact: true });
+  await page.getByLabel('Find text', { exact: true }).focus();
+  await page.keyboard.press('Control+Shift+P');
+  await palette.waitFor();
+  await searchCommands.fill('Undo');
+  const undoOption = palette.locator('[data-command="history.undo"]');
+  assert.equal(await undoOption.getAttribute('aria-disabled'), 'true');
+  assert.ok((await undoOption.textContent()).includes('No workspace transaction to undo.'));
+  await searchCommands.press('Enter');
+  assert.equal(
+    await palette.count(),
+    1,
+    'Unavailable commands do not execute or close the palette',
+  );
+  await searchCommands.fill('missing command xyz');
+  await palette.getByText(/No commands match/).waitFor();
+  await searchCommands.press('Escape');
+  assert.equal(
+    await page
+      .getByLabel('Find text', { exact: true })
+      .evaluate((input) => input === document.activeElement),
+    true,
+  );
+  await page.getByRole('button', { name: 'Commands', exact: true }).click();
+  await searchCommands.fill('codes');
+  await searchCommands.press('Enter');
+  assert.equal(await page.getByLabel('Reveal codes', { exact: true }).isChecked(), false);
+  await page.keyboard.press('Control+Shift+E');
+  assert.equal(await page.getByLabel('Reveal codes', { exact: true }).isChecked(), true);
   await page.locator('.editable-span').first().click();
   await page.getByLabel('Text content').fill('A revised opening with café and 😀.');
   await page.getByRole('button', { name: 'Preview text edit' }).click();
+  await page.getByLabel('Change preview').waitFor();
+  await page.getByLabel('Text content').fill('Another inspector draft');
+  assert.equal(await page.getByLabel('Change preview').count(), 0);
+  await page.getByLabel('Text content').fill('A revised opening with café and 😀.');
+  await page.getByLabel('Text content').press('Control+Enter');
   await page.getByLabel('Change preview').waitFor();
   await page.getByRole('button', { name: 'Apply transaction' }).click();
   await page.waitForFunction(() =>
@@ -359,9 +395,70 @@ try {
   await page.getByRole('button', { name: /review.docx/ }).click();
   await page.locator('.protected-span').first().dblclick();
   assert.equal(await inlineInput.count(), 0);
+  await page.keyboard.press('Control+Shift+P');
+  await searchCommands.fill('selected span inline');
+  assert.equal(await palette.getByRole('option').getAttribute('aria-disabled'), 'true');
+  await page.screenshot({ path: join(output, 'commands-protected.png'), fullPage: true });
+  await searchCommands.press('Escape');
+  await page.getByRole('button', { name: /cross-run.docx/ }).click();
+  await joinedSpan.click();
+  await page.keyboard.press('Control+Shift+P');
+  await searchCommands.fill('selected span inline');
+  await searchCommands.press('Enter');
+  await inlineInput.waitFor();
+  await inlineInput.fill('Command draft');
+  await inlineInput.evaluate((input) => input.setSelectionRange(2, 5));
+  await page.keyboard.press('Control+Shift+P');
+  await searchCommands.fill('Save As');
+  assert.ok(
+    (await palette.getByRole('option').textContent()).includes(
+      'Apply or cancel the inline draft first.',
+    ),
+  );
+  await searchCommands.press('Escape');
+  assert.equal(await inlineInput.inputValue(), 'Command draft');
+  assert.deepEqual(
+    await inlineInput.evaluate((input) => [
+      input === document.activeElement,
+      input.selectionStart,
+      input.selectionEnd,
+    ]),
+    [true, 2, 5],
+  );
+  // Native text undo must never undo a committed workspace transaction.
+  const beforeNativeUndo = await page.evaluate(() => window.ritr.snapshot());
+  await inlineInput.press('End');
+  await inlineInput.pressSequentially('!');
+  await inlineInput.press('Control+z');
+  assert.deepEqual(await page.evaluate(() => window.ritr.snapshot()), beforeNativeUndo);
+  await inlineInput.fill('Command draft');
+  await inlineInput.press('Control+Enter');
+  await page.getByLabel('Change preview').waitFor();
+  await page.keyboard.press('Control+Shift+Enter');
+  await page.locator('.editable-span').filter({ hasText: 'Command draft' }).waitFor();
+  await page.keyboard.press('Control+z');
+  await joinedSpan.waitFor();
+  await page.keyboard.press('Control+Shift+z');
+  await page.locator('.editable-span').filter({ hasText: 'Command draft' }).waitFor();
+  await page.keyboard.press('Control+f');
+  assert.equal(
+    await page
+      .getByLabel('Find text', { exact: true })
+      .evaluate((input) => input === document.activeElement),
+    true,
+  );
+  await page.keyboard.press('Control+Shift+P');
+  await searchCommands.fill('compare package');
+  await searchCommands.press('Enter');
+  await page.locator('.part-report').waitFor();
+  await page.keyboard.press('Control+Shift+P');
+  await searchCommands.press('ArrowDown');
+  assert.equal(await searchCommands.getAttribute('aria-activedescendant'), 'command-file.saveAs');
+  await page.screenshot({ path: join(output, 'commands.png'), fullPage: true });
+  await searchCommands.press('Escape');
   assert.deepEqual(errors, []);
   console.log(
-    `Desktop smoke passed: inspector and inline editing, Unicode drafts, stale/boundary refusal, preview, cross-run replacement, undo/redo, Save As, code inspection, lists and merged/nested tables. Artifacts: ${output}`,
+    `Desktop smoke passed: command palette, shortcuts, availability and focus, inspector and inline editing, Unicode drafts, stale/boundary refusal, preview, cross-run replacement, undo/redo, Save As, code inspection, lists and merged/nested tables. Artifacts: ${output}`,
   );
 } catch (error) {
   console.error(error);

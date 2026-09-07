@@ -50,6 +50,24 @@ discards the draft. Inline edits stay within one span, including table-cell text
 Workspace replacement uses the same preview/commit flow. Undo reverses the entire
 transaction. Save As creates a new verified DOCX and refuses existing paths.
 
+Click **Commands** or press **Ctrl+Shift+P** to search the available actions.
+Use arrow keys and Enter to choose an action, or Escape to return to your edit.
+Unavailable commands remain visible with an explanation.
+
+| Shortcut | Action |
+| --- | --- |
+| Ctrl+O | Open documents |
+| Ctrl+Shift+S | Save As |
+| Ctrl+F | Focus workspace search |
+| Ctrl+Enter | Preview the inline or inspector text edit |
+| Ctrl+Shift+Enter | Apply the displayed transaction |
+| Ctrl+Z | Undo a workspace transaction |
+| Ctrl+Y / Ctrl+Shift+Z | Redo a workspace transaction |
+| Ctrl+Shift+E | Toggle Reveal Codes |
+
+Inside text fields, undo/redo shortcuts retain native text-editing behavior.
+Use the toolbar or palette to undo a workspace transaction while a field has focus.
+
 ## Implemented
 
 - Preservation-oriented ZIP/OOXML package layer and per-part byte comparison.
@@ -63,6 +81,7 @@ transaction. Save As creates a new verified DOCX and refuses existing paths.
 - Insert/delete/replace within text spans, previewable workspace transactions,
   cross-run literal search/replacement, protected-match reporting, and session undo/redo.
 - Electron/React desktop with a CodeMirror Reveal Codes projection and inspector.
+- Shared GUI command registry, searchable palette, contextual availability, and shortcuts.
 - Diagnostic CLI, safe Save As, and staged export to a new batch directory.
 - Synthetic `docxfix` fixtures, preservation/command/save tests, and desktop
   end-to-end verification.

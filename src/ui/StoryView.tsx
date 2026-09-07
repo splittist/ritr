@@ -9,7 +9,7 @@ import type { InlineEditing } from './inline-edit';
 interface Props {
   story: Story;
   codes: boolean;
-  onSelect: (token: Token) => void;
+  onSelect: (token?: Token) => void;
   inline: InlineEditing;
 }
 

@@ -661,6 +661,78 @@ footer.error {
   color: #76592d;
   font-size: 12px;
 }
+.command-palette {
+  width: min(620px, calc(100vw - 48px));
+  max-height: calc(100vh - 80px);
+  margin: 70px auto auto;
+  padding: 20px;
+  border: 1px solid #94aa9e;
+  border-radius: 10px;
+  background: #fffefa;
+  color: #293b37;
+  box-shadow: 0 20px 70px #152b3540;
+}
+.command-palette::backdrop {
+  background: #172d3455;
+}
+.command-heading,
+.command-option > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.command-heading h2 {
+  margin: 0 0 12px;
+  font:
+    24px Georgia,
+    serif;
+}
+.command-heading button {
+  padding: 4px 9px;
+  font-size: 12px;
+}
+.command-palette input {
+  width: 100%;
+  margin: 10px 0;
+}
+.command-results {
+  max-height: min(440px, 55vh);
+  overflow-y: auto;
+}
+.command-option {
+  padding: 12px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.command-option[aria-selected='true'] {
+  border-color: #94aa9e;
+  background: #e7eee6;
+}
+.command-option[aria-disabled='true'] {
+  color: #68716a;
+  cursor: default;
+}
+.command-option small {
+  display: block;
+  margin-top: 5px;
+  line-height: 1.5;
+}
+.command-option kbd {
+  font:
+    11px Consolas,
+    monospace;
+  white-space: nowrap;
+  padding: 3px 5px;
+  border: 1px solid #cbd3cb;
+  border-radius: 3px;
+}
+.command-hint {
+  margin: 15px 0 0;
+  font-size: 12px;
+  color: #64715f;
+}
 @media (max-width: 1150px) {
   .workspace {
     grid-template-columns: 180px minmax(420px, 1fr) 260px;

@@ -69,6 +69,22 @@ continuity. These are package-layer capabilities, not permission to edit arbitra
 document structure. Paragraph split/join and caret mapping across those operations
 remain unimplemented in the engine and desktop.
 
+## GUI commands
+
+The Commands button and Ctrl+Shift+P open a searchable modal palette. Existing
+open/save, workspace history, inline/inspector preview, apply/dismiss, search,
+replacement, code visibility, and package comparison actions share typed command
+IDs and availability checks with their buttons and shortcuts. Unavailable actions
+explain the missing document, editable selection, draft, query, or preview.
+Checks run again at invocation; busy operations cannot be invoked twice.
+
+Ctrl+Enter previews the current text draft. Ctrl+Shift+Enter applies the displayed
+preview. Changing an inline or inspector draft dismisses its old preview. The
+palette does not bypass preview/commit, protected-content policy, or stale-revision
+checks. Ctrl+Z and redo shortcuts operate on workspace history in the projection;
+inside text fields they remain native text undo/redo. Escape closes the palette
+and returns focus without cancelling an underlying inline draft.
+
 ## Protected content
 
 Fields (including results across paragraph boundaries), revisions, tracked run
@@ -144,7 +160,7 @@ preserved but never fetched. This is not full OPC/OOXML schema validation.
 Paragraph split/join; arbitrary cross-run selection edits; direct formatting changes; list,
 table, hyperlink, and section restructuring; full style/layout resolution and
 exotic numbering formats;
-comment or revision mutation; command palette; granular code-category filters;
+comment or revision mutation; granular code-category filters;
 paginated preview; in-place saves; persisted workspaces or undo journals;
 installer packaging. The desktop is an inspector/editor prototype, not yet a
 complete replacement for Word.

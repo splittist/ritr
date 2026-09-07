@@ -58,6 +58,8 @@ previews. Undo/redo moves whole transactions between two stacks.
 | `src/desktop/main.ts` | Owns workspace and dialogs; validates IPC callers and arguments |
 | `src/desktop/preload.ts` | Exposes named operations; no generic IPC or filesystem access |
 | `src/ui/App.tsx` | Workspace navigation, inspector, search, previews and reports |
+| `src/ui/commands.ts` | Typed GUI command IDs, labels, shortcuts, availability, and guarded dispatch |
+| `src/ui/CommandPalette.tsx` | Modal command search, keyboard selection, and unavailable-action explanations |
 | `src/ui/RevealEditor.tsx` | CodeMirror projection with atomic code widgets and source selection |
 
 The useful core nouns are `DocxPackage`, `Story`, `TextSpan`, `TextEdit`,
@@ -146,6 +148,21 @@ owns the draft and source revision; `RevealEditor.tsx` keeps its field and
 selection alive while typing, and restores offsets when rebuilding the projection.
 `inline-edit.ts` defines draft callbacks, input validation, and grapheme deletion.
 The desktop refuses a draft whose expected document revision is no longer current.
+
+`commands.ts` is a small GUI action registry. Buttons, palette entries, and global
+shortcuts share command metadata and availability checks. `App.tsx` supplies one
+typed handler per command ID; these handlers still call the named desktop API and
+the existing engine transactions. No generic IPC execution endpoint is exposed.
+Navigation and direct text input remain ordinary selection/draft interactions.
+
+Dispatch rechecks the current context and serializes operations. A disabled
+action returns its reason without invoking its handler. The modal palette keeps
+unavailable actions visible and restores focus on close. Native text fields keep
+their own undo/redo shortcuts, while the document projection uses workspace
+history. Preview and apply have distinct shortcuts. The current source selection,
+including keyboard selection and protected boundaries, drives edit availability.
+Adding an action means defining its ID and metadata, implementing its typed
+handler, and exposing any desired button; the palette picks it up automatically.
 
 The current UI deliberately does not translate arbitrary CodeMirror changes
 into commands. That requires paragraph and formatting-boundary semantics first.

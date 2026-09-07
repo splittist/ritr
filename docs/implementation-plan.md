@@ -130,7 +130,7 @@ span edits and stopping at structural and review boundaries.
 
 1. Add conservative paragraph split/join commands with preservation fixtures and
    explicit caret mapping, using the implemented identity-aware package patches.
-2. Expand command and formatting inspection UI as the mutation surface grows.
+2. Expand formatting inspection and add new actions to the shared command registry.
 
 ### Implemented slice: bounded inline typing
 
@@ -174,3 +174,22 @@ paragraph split/join is not yet exposed as an engine or desktop command.
 
 Validation: all 70 unit/integration tests, formatting, type checking, production
 build, and the hidden Electron smoke test pass.
+
+### Implemented slice: GUI commands and palette
+
+Existing GUI actions now have typed IDs, shared labels, availability reasons,
+and selected keyboard shortcuts. Buttons and the searchable Commands palette
+use the same guarded dispatcher and existing named desktop operations. The
+palette supports keyboard navigation, retains unavailable actions with reasons,
+and restores focus to a draft on close. Workspace undo shortcuts defer to native
+text undo inside fields. Selection tracking now handles protected span endpoints
+and keyboard selections so command availability follows the actual source range.
+
+The next structural commands should enter through this registry and retain the
+engine's preview/commit and source-preservation contracts.
+
+Validation: all 74 unit/integration tests, formatting, type checking, production
+build, and desktop smoke checks pass. The desktop coverage includes palette
+filtering, unavailable/protected actions, keyboard navigation, focus and field
+selection restoration, native text undo, workspace history shortcuts, and the
+separate preview/apply shortcuts.

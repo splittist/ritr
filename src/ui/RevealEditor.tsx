@@ -151,7 +151,7 @@ export function RevealEditor({
 }: {
   story: Story;
   codes: boolean;
-  onSelect: (token: Token) => void;
+  onSelect: (token?: Token) => void;
   inline: InlineEditing;
   embedded?: boolean;
 }) {
@@ -257,11 +257,16 @@ export function RevealEditor({
     }
     const ranges = decorations.finish();
     const atomicRanges = atomic.finish();
+    const selectedLocation = (editor: EditorView) => {
+      const { from, to } = editor.state.selection.main;
+      return (
+        locations.find((l) => from >= l.from && from < l.to && to <= l.to) ??
+        locations.find((l) => from >= l.from && to <= l.to)
+      );
+    };
     const begin = (editor: EditorView, insert?: string, backward?: boolean) => {
       const { from, to } = editor.state.selection.main;
-      const location =
-        locations.find((l) => from >= l.from && from < l.to && to <= l.to) ??
-        locations.find((l) => from >= l.from && to <= l.to);
+      const location = selectedLocation(editor);
       if (!location || location.token.kind !== 'text') {
         editing.current.message(
           'Select text within one span to edit; codes and boundaries are preserved.',
@@ -307,6 +312,9 @@ export function RevealEditor({
         extensions: [
           EditorState.readOnly.of(true),
           EditorView.lineWrapping,
+          EditorView.updateListener.of((update) => {
+            if (update.selectionSet) select.current(selectedLocation(update.view)?.token);
+          }),
           EditorView.decorations.of(ranges),
           EditorView.decorations.of(Decoration.set(lines, true)),
           EditorView.atomicRanges.of(() => atomicRanges as DecorationSet),
@@ -327,11 +335,7 @@ export function RevealEditor({
               return true;
             },
             mouseup: (_event, editor) => {
-              const position = editor.state.selection.main.head;
-              const location =
-                locations.find((l) => position >= l.from && position < l.to) ??
-                locations.find((l) => position === l.to);
-              if (location) select.current(location.token);
+              select.current(selectedLocation(editor)?.token);
               return false;
             },
             keydown: (event, editor) => {
