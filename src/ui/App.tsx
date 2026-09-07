@@ -266,7 +266,7 @@ export function App() {
                 />{' '}
                 Match case
               </label>
-              <span>Within text spans · all open documents and stories</span>
+              <span>Across formatting runs · stops at structure and review codes</span>
             </div>
             {matches && (
               <div className="matches">
@@ -301,6 +301,7 @@ export function App() {
                   {preview.edits.length} spans · {preview.skipped} protected matches skipped
                 </span>
               </div>
+              <p>Cross-run replacements use the first matched run’s formatting.</p>
               {preview.edits.map((e, i) => (
                 <div className="diff" key={i}>
                   <small>{e.name}</small>

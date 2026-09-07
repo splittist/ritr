@@ -14,7 +14,8 @@ const usage = `ritr — preservation-first DOCX workbench
   replace <literal> <replacement> <files...> [--out-dir <new-directory>]
 
 Replace previews by default. --out-dir applies the preview and exports a new
-directory. Search is case-sensitive and confined to individual text spans.
+directory. Search is case-sensitive and crosses formatting runs, stopping at
+structure and review boundaries. Replacement uses the first matched run's formatting.
 Originals are never overwritten. Use the desktop app for interactive editing.
 `;
 const print = (value: unknown) => console.log(JSON.stringify(value, null, 2));

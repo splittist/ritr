@@ -50,6 +50,7 @@ previews. Undo/redo moves whole transactions between two stacks.
 | `src/engine/paragraph.ts` | Paragraph list membership and indentation with property provenance |
 | `src/ui/paragraph-layout.ts` | Source indentation to bounded, approximate display geometry |
 | `src/engine/workspace.ts` | Exclusive mutation API: search, preview, commit, history, events, saved state |
+| `src/engine/search.ts` | Literal cross-run matching with structural boundaries and source ranges |
 | `src/io/save.ts` | Filesystem boundary: stage, validate, sync, publish a new file or directory |
 | `src/cli.ts` | Thin command-line client of the same engine |
 | `src/desktop/protocol.ts` | Typed contract between desktop processes |
@@ -62,6 +63,13 @@ The useful core nouns are `DocxPackage`, `Story`, `TextSpan`, `TextEdit`,
 `ChangePreview`, and `Workspace`. There is no service container, plugin system,
 generic command bus, or custom reactive framework to learn. `Paragraph` and
 `ListLabel` add resolved display metadata without widening the mutation API.
+
+For search, start with `tests/search.test.ts`. `searchStory()` joins text across
+formatting codes and maps each match back to source span ranges. Other code
+categories terminate a search segment. `previewReplace()` expands editable
+matches into ordinary `TextEdit` commands, putting replacement text in the first
+matched run and removing matched slices from later runs. The existing transaction
+and preservation checks apply to the complete change.
 
 For numbering, start with `tests/numbering.test.ts`. `Numbering` reads definitions
 once; each story creates `Paragraphs` with a fresh `NumberingSequence`. Property

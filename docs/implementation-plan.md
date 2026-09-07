@@ -124,7 +124,29 @@ The first combined milestone spans Phases 0 through 4:
 
 ## Immediate next steps
 
-1. Choose the package-manager and repository layout.
-2. Create a minimal set of synthetic DOCX fixtures.
-3. Define the package comparison report format.
-4. Implement the no-edit round-trip test before building UI components.
+The foundation, numbering, and table display slices are implemented. Literal
+workspace search and replacement now cross formatting runs, using source-bound
+span edits and stopping at structural and review boundaries.
+
+1. Add direct typing within a source-bound text span.
+2. Establish identity remapping before paragraph split/join.
+3. Expand command and formatting inspection UI as the mutation surface grows.
+
+### Next slice: bounded inline typing
+
+Let users edit text where they read it. The current Reveal Codes projection is
+read-only and routes every edit through the inspector; the engine already
+supports the source-bound subrange commands needed for this slice.
+
+- Map selections to offsets within one editable text span, including empty spans.
+- Keep inline changes as a draft with explicit apply/cancel, using the existing
+  preview/commit transaction path and workspace undo/redo.
+- Preserve caret and selection through projection refreshes. Handle composition,
+  paste, and grapheme-aware deletion without exposing code placeholders as text.
+- Refuse edits across spans, protected content, or structural boundaries; explain
+  the boundary in the UI. Paragraph split/join requires identity remapping first.
+
+Acceptance: type, paste, delete, cancel, apply, undo and redo in ordinary text
+and table cells, with codes shown and hidden. Save and reopen the result and
+verify that only the intended text elements changed. Cover empty spans, Unicode
+composition, and stale drafts after another workspace transaction.

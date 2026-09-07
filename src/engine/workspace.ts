@@ -1,6 +1,7 @@
 import { DocxPackage, comparePackages, type PartDifference } from '../package/docx';
 import { assertText, descendants, patchXml, textPatch } from '../package/xml';
 import { readDocument, spans, type DocumentModel } from './document';
+import { searchStory, type SearchRange } from './search';
 
 export interface OpenDocument {
   id: string;
@@ -17,6 +18,8 @@ export interface TextEdit {
   text: string;
 }
 export interface SearchMatch extends TextEdit {
+  /** All matched slices; inherited spanId/from/to identify the first slice for navigation. */
+  ranges: SearchRange[];
   storyId: string;
   before: string;
   editable: boolean;
@@ -128,21 +131,14 @@ export class Workspace {
     );
     for (const document of this.documents())
       for (const story of document.model.stories)
-        for (const token of story.tokens) {
-          if (token.kind !== 'text') continue;
-          for (const match of token.span.text.matchAll(expression))
-            result.push({
-              documentId: document.id,
-              storyId: story.id,
-              spanId: token.span.id,
-              from: match.index,
-              to: match.index + match[0].length,
-              text: '',
-              before: match[0],
-              editable: token.span.editable,
-              reason: token.span.reason,
-            });
-        }
+        for (const match of searchStory(story, expression))
+          result.push({
+            ...match,
+            ...match.ranges[0]!,
+            documentId: document.id,
+            storyId: story.id,
+            text: '',
+          });
     return result;
   }
   previewReplace(query: string, replacement: string, caseSensitive = true): ChangePreview {
@@ -151,7 +147,15 @@ export class Workspace {
     const matches = this.search(query, caseSensitive);
     return this.preview(
       `Replace “${query}”`,
-      matches.filter((m) => m.editable).map((m) => ({ ...m, text: replacement })),
+      matches
+        .filter((m) => m.editable && m.before !== replacement)
+        .flatMap((m) =>
+          m.ranges.map((range, index) => ({
+            ...range,
+            documentId: m.documentId,
+            text: index === 0 ? replacement : '',
+          })),
+        ),
       matches.filter((m) => !m.editable).length,
     );
   }

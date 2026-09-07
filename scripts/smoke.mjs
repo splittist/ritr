@@ -1,12 +1,26 @@
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate';
 import { resolve, join } from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 await mkdir('test-results', { recursive: true });
 const output = await mkdtemp(resolve('test-results/desktop-'));
+const crossRunPath = join(output, 'cross-run.docx');
+const crossRunParts = unzipSync(await readFile('fixtures/generated/plain.docx'));
+const crossRunXml = strFromU8(crossRunParts['word/document.xml']);
+assert.ok(crossRunXml.includes('A small document with a clear beginning.'));
+crossRunParts['word/document.xml'] = strToU8(
+  crossRunXml
+    .replace(
+      'A small document with a clear beginning.',
+      'Cross-run </w:t></w:r><w:r><w:rPr><w:b/></w:rPr><w:t>needle',
+    )
+    .replace('Replace this phrase', 'Unrelated text'),
+);
+await writeFile(crossRunPath, zipSync(crossRunParts));
 const env = { ...process.env, RITR_SMOKE: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
 const app = await electron.launch({
@@ -18,6 +32,7 @@ const app = await electron.launch({
     'fixtures/generated/review.docx',
     'fixtures/generated/lists.docx',
     'fixtures/generated/tables.docx',
+    crossRunPath,
   ],
   env,
 });
@@ -29,7 +44,7 @@ try {
   const errors = [];
   page.on('pageerror', (error) => errors.push(String(error)));
   await page.getByRole('heading', { name: 'plain.docx', exact: true }).waitFor();
-  assert.equal(await page.locator('.document-link').count(), 5);
+  assert.equal(await page.locator('.document-link').count(), 6);
   assert.ok((await page.locator('.code-token').count()) > 0);
   await page.locator('.editable-span').first().click();
   await page.getByLabel('Text content').fill('A revised opening with café and 😀.');
@@ -174,9 +189,25 @@ try {
     document.querySelector('footer')?.textContent.includes('Saved and verified'),
   );
   assert.ok((await readFile(tablePath)).length > 0);
+  await page.getByRole('button', { name: /cross-run.docx/ }).click();
+  await page.getByLabel('Find text', { exact: true }).fill('Cross-run needle');
+  await page.getByRole('button', { name: 'Find', exact: true }).click();
+  await page.locator('.matches').getByText('1 matches · 0 protected').waitFor();
+  await page.locator('.matches button').click();
+  assert.equal(await page.getByLabel('Text content').inputValue(), 'Cross-run ');
+  await page.getByLabel('Replace with', { exact: true }).fill('Joined text');
+  await page.getByRole('button', { name: 'Preview replacement' }).click();
+  await page.getByLabel('Change preview').waitFor();
+  assert.equal(await page.locator('.diff').count(), 2);
+  await page.getByRole('button', { name: 'Apply transaction' }).click();
+  await page.locator('.editable-span').filter({ hasText: 'Joined text' }).waitFor();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await page.locator('.editable-span').filter({ hasText: 'needle' }).waitFor();
+  await page.getByRole('button', { name: 'Redo', exact: true }).click();
+  await page.locator('.editable-span').filter({ hasText: 'Joined text' }).waitFor();
   assert.deepEqual(errors, []);
   console.log(
-    `Desktop smoke passed: editing, preview, multi-story replacement, undo/redo, Save As, code inspection, lists and merged/nested tables. Artifacts: ${output}`,
+    `Desktop smoke passed: editing, preview, multi-story and cross-run replacement, undo/redo, Save As, code inspection, lists and merged/nested tables. Artifacts: ${output}`,
   );
 } finally {
   await app.close();

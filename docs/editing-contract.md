@@ -14,11 +14,21 @@ This describes implemented behavior, not the entire architecture roadmap.
   by the engine; use full-grapheme ranges when implementing direct typing.
 - Tabs, line breaks, invalid XML characters, overlapping ranges, and stale
   previews are refused. Adjacent replacement ranges are allowed.
-- Search is literal and limited to individual spans. It does not find phrases
-  crossing run boundaries. Optional case-insensitive matching uses JavaScript
-  Unicode regex folding without changing source offsets.
+- Search is literal and crosses adjacent text spans and formatting codes.
+  Every structure, review, or opaque code is a hard boundary, including paragraph
+  and cell boundaries, tabs/breaks, hyperlinks, bookmark/comment anchors, fields,
+  and revision boundaries. Search works within a hyperlink or revision boundary.
+  Optional case-insensitive matching uses JavaScript Unicode regex folding
+  without changing source offsets. Matches are non-overlapping within each segment.
+- Each search match exposes ordered source `ranges`; its top-level span and
+  offsets identify the first range for navigation. Cross-run replacement writes
+  the replacement into that first range and deletes the matched text in later
+  ranges. Unmatched prefixes/suffixes, run properties, and empty elements remain.
+  Replacement text inherits the first matched run's formatting. An identical
+  replacement leaves the original text distribution and formatting untouched.
 - Replacement previews include a protected-match count. Protected matches are
-  skipped explicitly; direct attempts to edit them throw an error.
+  skipped in full if any matched slice is protected; direct attempts to edit
+  protected spans throw an error.
 - Workspace commit and undo/redo affect every staged document together.
 
 ## Protected content
@@ -93,7 +103,7 @@ preserved but never fetched. This is not full OPC/OOXML schema validation.
 
 ## Not implemented yet
 
-Paragraph split/join; cross-run text edits; direct formatting changes; list,
+Paragraph split/join; arbitrary cross-run selection edits; direct formatting changes; list,
 table, hyperlink, and section restructuring; full style/layout resolution and
 exotic numbering formats;
 comment or revision mutation; command palette; granular code-category filters;

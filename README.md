@@ -57,7 +57,7 @@ transaction. Save As creates a new verified DOCX and refuses existing paths.
 - Table grids, horizontal/vertical merges, nested tables, approximate widths and
   borders, with source-bound table/cell inspection and the same safe text editing.
 - Insert/delete/replace within text spans, previewable workspace transactions,
-  literal search, protected-match reporting, and session undo/redo.
+  cross-run literal search/replacement, protected-match reporting, and session undo/redo.
 - Electron/React desktop with a CodeMirror Reveal Codes projection and inspector.
 - Diagnostic CLI, safe Save As, and staged export to a new batch directory.
 - Synthetic `docxfix` fixtures, preservation/command/save tests, and desktop
@@ -65,7 +65,7 @@ transaction. Save As creates a new verified DOCX and refuses existing paths.
 
 This is a working text-span editor and document workbench. Direct typing in the
 document, paragraph split/join, formatting changes, comment/revision editing,
-cross-run search, paginated preview, and in-place saves are still future work.
+paginated preview, and in-place saves are still future work.
 See the precise [editing contract](docs/editing-contract.md).
 
 ## CLI examples
@@ -81,7 +81,9 @@ npm run cli -- replace "Replace this phrase" "Updated wording" fixtures/generate
 ```
 
 Replacement previews by default; `--out-dir` applies it and exports all supplied
-documents into a new directory. Search does not cross text-span boundaries.
+documents into a new directory. Search crosses formatting runs but stops at
+structure and review boundaries. Replacements inherit the first matched run's
+formatting; the preview shows every affected span.
 `compare` exits with code 2 when parts differ; invalid operations exit with 1.
 
 ## Understand and develop it
