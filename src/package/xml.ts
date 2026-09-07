@@ -98,16 +98,36 @@ export interface XmlPatch {
   start: number;
   end: number;
   replacement: string;
+  /** Existing nodes retained at element-start offsets relative to replacement. */
+  retain?: readonly { nodeId: string; offset: number }[];
 }
-export function patchXml(source: string, patches: XmlPatch[]): string {
-  let boundary = source.length;
-  for (const patch of [...patches].sort((a, b) => b.start - a.start)) {
-    if (patch.start < 0 || patch.end > boundary || patch.end < patch.start)
+export function orderedPatches(source: string, patches: readonly XmlPatch[]): XmlPatch[] {
+  const ordered = [...patches].sort((a, b) => a.start - b.start);
+  let previous: XmlPatch | undefined;
+  for (const patch of ordered) {
+    if (
+      !Number.isInteger(patch.start) ||
+      !Number.isInteger(patch.end) ||
+      patch.start < 0 ||
+      patch.end > source.length ||
+      patch.end < patch.start ||
+      typeof patch.replacement !== 'string' ||
+      (previous && (patch.start < previous.end || patch.start === previous.start))
+    )
       throw new Error('Overlapping or invalid XML patches');
-    source = source.slice(0, patch.start) + patch.replacement + source.slice(patch.end);
-    boundary = patch.start;
+    previous = patch;
   }
-  return source;
+  return ordered;
+}
+export function patchXml(source: string, patches: readonly XmlPatch[]): string {
+  const chunks: string[] = [];
+  let offset = 0;
+  for (const patch of orderedPatches(source, patches)) {
+    chunks.push(source.slice(offset, patch.start), patch.replacement);
+    offset = patch.end;
+  }
+  chunks.push(source.slice(offset));
+  return chunks.join('');
 }
 
 /** Only the selected w:t is rewritten. All surrounding lexical XML survives. */
@@ -127,5 +147,6 @@ export function textPatch(source: string, node: XmlNode, value: string): XmlPatc
     start: node.start,
     end: node.end,
     replacement: `${opening}${escapeXml(value)}</${node.name}>`,
+    retain: [{ nodeId: node.id, offset: 0 }],
   };
 }

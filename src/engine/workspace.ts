@@ -1,5 +1,5 @@
 import { DocxPackage, comparePackages, type PartDifference } from '../package/docx';
-import { assertText, descendants, patchXml, textPatch } from '../package/xml';
+import { assertText, descendants, textPatch } from '../package/xml';
 import { readDocument, spans, type DocumentModel } from './document';
 import { searchStory, type SearchRange } from './search';
 
@@ -222,14 +222,7 @@ export class Workspace {
         });
       }
       if (!partPatches.size) continue;
-      const patched = entry.current.withXml(
-        new Map(
-          [...partPatches].map(([part, patches]) => [
-            part,
-            patchXml(entry.current.text(part), patches),
-          ]),
-        ),
-      );
+      const patched = entry.current.withXmlPatches(partPatches);
       // Save/reopen validation happens before any document is changed.
       DocxPackage.open(patched.save());
       before.set(documentId, entry.current);

@@ -23,7 +23,7 @@ Workspace.preview()          validate intent and prepare every document
 textPatch() + patchXml()      replace only selected w:t elements
        |
        v
-DocxPackage.withXml()         construct a new immutable package snapshot
+DocxPackage.withXmlPatches()  construct a snapshot with retained source identities
        |
        v
 Workspace.commit(id)         publish all snapshots together
@@ -43,6 +43,7 @@ previews. Undo/redo moves whole transactions between two stacks.
 | --- | --- |
 | `src/package/zip.ts` | ZIP bounds, entry checks, CRC verification, inflation and compression |
 | `src/package/xml.ts` | Namespace-aware XML parsing, source ranges, lexical text patches |
+| `src/package/xml-identity.ts` | Patch-based node identity retention, fresh IDs, and identity comparison |
 | `src/package/docx.ts` | Immutable package snapshots, relationships, content types, diagnostics, byte comparison |
 | `src/engine/document.ts` | Read-only semantic interpretation: stories, source-bound spans, code tokens, editing policy |
 | `src/engine/styles.ts` | Shared style index, inheritance chains, document defaults |
@@ -102,13 +103,31 @@ start/end offsets. Offsets count UTF-16 code units, matching JavaScript strings
 and CodeMirror. Text is decoded semantically, but the entire original XML string
 is retained for patching. Saxes validates XML; it is not used as a serializer.
 
-Each parsed element receives a part-scoped identity such as
-`word/document.xml#12`. These identities remain stable over the current set of
-text-only commands because element topology never changes. Offsets are recomputed
-after edits. **Do not extend this assumption to insertion/removal of elements.**
-Before paragraph split/join or formatting commands, add an explicit identity
-remapping layer or retain mutable bound XML nodes. Do not use saved offsets as
-long-lived identities.
+Each opened element receives a part-scoped identity such as
+`word/document.xml#12`. Package snapshots retain a private identity table for each
+changed XML part and reapply it on every parse. Source offsets are still recomputed;
+never use saved offsets as long-lived identities.
+
+`withXmlPatches()` maps unchanged opening tags through the patch offsets. A node
+keeps its ID only if its opening tag survives and its expanded name still matches.
+Rewritten or moved nodes can be retained explicitly with a patch's `retain` entries:
+each names an old node ID and the new opening-tag offset inside `replacement`.
+The targets must be valid elements of the same expanded name, and retention is
+one-to-one. `textPatch()` declares retention for the text element it rewrites.
+Other new nodes receive fresh session IDs that are never reused across branches.
+
+Start with `tests/identity.test.ts` for insertion, deletion, wrapper split/join,
+explicit subtree moves, semantic bindings, and invalid claims. The standalone
+`compareXmlIdentities()` report lists retained, created, and removed IDs. Raw
+`withXml()` replacements have no continuity proof, so every node in a changed
+part receives a fresh identity; use targeted patches for engine commands.
+
+Identity tables live in immutable package snapshots and therefore travel with
+workspace undo/redo. They never appear in saved OOXML. Reopening a file starts
+a new identity session. These IDs are scoped to the opened document and part;
+they are not persistent cross-file identifiers. Node continuity also does not
+map a caret from a removed span into another span: future split/join commands
+must define that position mapping and their own structural editing policy.
 
 Replacing text rewrites just its `w:t` element, escaping text and setting
 `xml:space="preserve"`. Other elements, attributes, namespace declarations,
@@ -141,10 +160,10 @@ into commands. That requires paragraph and formatting-boundary semantics first.
    multi-document failure behavior, undo/redo, and save/reopen.
 6. Expose the operation through the IPC contract and UI.
 
-The next substantial slice should establish identity remapping for paragraph
-split/join. Structural identity management comes before widening the
-editing surface. The read-only block hierarchy now exists, but is not yet a
-structural editing graph; run mutation and identity remapping remain future work.
+The next substantial slice should add conservative paragraph split/join commands
+using the identity-aware patch path. The read-only block hierarchy is not yet a
+structural editing graph. Commands must still specify allowed paragraph properties,
+review and opaque-content boundaries, and how selections move across a split/join.
 
 ## Tradeoffs to revisit
 

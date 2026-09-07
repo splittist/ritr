@@ -53,6 +53,7 @@ transaction. Save As creates a new verified DOCX and refuses existing paths.
 ## Implemented
 
 - Preservation-oriented ZIP/OOXML package layer and per-part byte comparison.
+- Snapshot-owned source identities, retained through targeted XML patches and undo/redo.
 - Body, header/footer, note and comment stories, source-bound text, formatting
   inspection, tables/hyperlinks, revision boundaries, and opaque content codes.
 - Generated multilevel numbers and bullets, style-linked headings, restart and

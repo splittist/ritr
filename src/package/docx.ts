@@ -1,4 +1,5 @@
-import { attr, child, isWord, parseXml, type XmlNode } from './xml';
+import { attr, child, descendants, isWord, parseXml, type XmlNode, type XmlPatch } from './xml';
+import { freshXmlIds, remapXmlIdentities } from './xml-identity';
 import { equalBytes, readZip, writeZip } from './zip';
 
 const CT = 'http://schemas.openxmlformats.org/package/2006/content-types';
@@ -47,6 +48,7 @@ export class DocxPackage {
   private constructor(
     private readonly parts: Map<string, Uint8Array>,
     private readonly original?: Uint8Array,
+    private readonly identities: ReadonlyMap<string, readonly string[]> = new Map(),
   ) {
     const diagnostics: Diagnostic[] = [];
     const types = this.xml('[Content_Types].xml');
@@ -148,15 +150,46 @@ export class DocxPackage {
     return text;
   }
   xml(name: string): XmlNode {
-    return parseXml(this.text(name), name);
+    const root = parseXml(this.text(name), name);
+    const ids = this.identities.get(name);
+    if (ids) {
+      const nodes = descendants(root);
+      if (nodes.length !== ids.length) throw new Error(`Invalid XML identity table: ${name}`);
+      nodes.forEach((node, index) => {
+        node.id = ids[index]!;
+      });
+    }
+    return root;
   }
+  /** Raw replacement has no continuity proof: changed parts receive entirely new identities. */
   withXml(changes: ReadonlyMap<string, string>): DocxPackage {
     const parts = new Map(this.parts);
+    const identities = new Map(this.identities);
+    let changed = false;
     for (const [name, value] of changes) {
       if (!parts.has(name)) throw new Error(`Cannot patch nonexistent part: ${name}`);
+      if (value === this.text(name)) continue;
+      const nodes = descendants(parseXml(value, name));
       parts.set(name, encoder.encode(value));
+      identities.set(name, Object.freeze(freshXmlIds(name, nodes.length)));
+      changed = true;
     }
-    return new DocxPackage(parts);
+    return changed ? new DocxPackage(parts, undefined, identities) : this;
+  }
+  /** Targeted edits preserve untouched tag identities and explicitly retained rewritten nodes. */
+  withXmlPatches(changes: ReadonlyMap<string, readonly XmlPatch[]>): DocxPackage {
+    const parts = new Map(this.parts);
+    const identities = new Map(this.identities);
+    let changed = false;
+    for (const [name, patches] of changes) {
+      if (!parts.has(name)) throw new Error(`Cannot patch nonexistent part: ${name}`);
+      if (!patches.length) continue;
+      const result = remapXmlIdentities(this.text(name), name, this.xml(name), patches);
+      parts.set(name, encoder.encode(result.source));
+      identities.set(name, Object.freeze(result.ids));
+      changed = true;
+    }
+    return changed ? new DocxPackage(parts, undefined, identities) : this;
   }
   save(): Uint8Array {
     const errors = this.diagnostics.filter((d) => d.severity === 'error');

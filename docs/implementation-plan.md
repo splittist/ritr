@@ -128,9 +128,9 @@ The foundation, numbering, and table display slices are implemented. Literal
 workspace search and replacement now cross formatting runs, using source-bound
 span edits and stopping at structural and review boundaries.
 
-1. Establish identity remapping before paragraph split/join.
-2. Add conservative paragraph split/join commands with preservation fixtures.
-3. Expand command and formatting inspection UI as the mutation surface grows.
+1. Add conservative paragraph split/join commands with preservation fixtures and
+   explicit caret mapping, using the implemented identity-aware package patches.
+2. Expand command and formatting inspection UI as the mutation surface grows.
 
 ### Implemented slice: bounded inline typing
 
@@ -144,7 +144,7 @@ existing source-bound text commands.
 - Preserve caret and selection through projection refreshes. Handle composition,
   paste, and grapheme-aware deletion without exposing code placeholders as text.
 - Refuse edits across spans, protected content, or structural boundaries; explain
-  the boundary in the UI. Paragraph split/join requires identity remapping first.
+  the boundary in the UI. Paragraph split/join is a separate structural command slice.
 
 Acceptance: type, paste, delete, cancel, apply, undo and redo in ordinary text
 and table cells, with codes shown and hidden. Save and reopen the result and
@@ -157,3 +157,20 @@ visibility changes, empty spans, table cells, protected/cross-span refusal,
 undo/redo, Save As part preservation, and stale revisions. Composition coverage
 uses synthetic browser events; operating-system IME behavior still needs manual
 verification with the user's input methods.
+
+### Implemented slice: source identity remapping
+
+Package snapshots now carry private XML identity tables. Targeted patches retain
+untouched nodes, support explicit retention of rewritten or moved nodes, and give
+new nodes fresh IDs across staging branches. Text transactions use this path;
+undo/redo restores identity tables together with package content. Raw whole-part
+replacement retires identities in the changed part.
+
+The package tests exercise insertion/deletion, identical neighbors, wrapper
+split/join, subtree movement, follow-up text edits, table/header bindings,
+namespace changes, multipart failure, invalid retention, and save/reopen without
+adding identity metadata. The structural cases test the package foundation;
+paragraph split/join is not yet exposed as an engine or desktop command.
+
+Validation: all 70 unit/integration tests, formatting, type checking, production
+build, and the hidden Electron smoke test pass.

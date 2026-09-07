@@ -53,6 +53,22 @@ start an edit. Caret/selection offsets survive code visibility changes and are
 restored into the projection after apply/cancel (clamped to the resulting span).
 Typing inside a draft does not add workspace undo entries; applying it adds one.
 
+## Source identity
+
+Node IDs are scoped to an opened document and part. Targeted package patches
+retain IDs for untouched opening tags and for rewritten/moved nodes explicitly
+identified by the command. New nodes get fresh IDs; removed IDs cannot silently
+become the identity of a later element. Retention requires a unique destination
+element with the same namespace URI and local name. Invalid claims are refused
+before returning a new package snapshot.
+
+Identity tables are restored with package snapshots during undo/redo. No identity
+metadata is written into DOCX files; reopening starts a new identity session.
+Raw whole-part XML replacement retires that part's IDs instead of guessing node
+continuity. These are package-layer capabilities, not permission to edit arbitrary
+document structure. Paragraph split/join and caret mapping across those operations
+remain unimplemented in the engine and desktop.
+
 ## Protected content
 
 Fields (including results across paragraph boundaries), revisions, tracked run
