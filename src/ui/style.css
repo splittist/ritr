@@ -625,6 +625,36 @@ footer.error {
   background: #f6e3dc;
   color: #973e30;
 }
+.inline-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px;
+  background: #eee0c0;
+  font-size: 12px;
+}
+.inline-text {
+  display: inline-block;
+  vertical-align: middle;
+  box-sizing: border-box;
+  max-width: 100%;
+  min-height: 28px;
+  margin: 0;
+  padding: 2px 4px;
+  resize: none;
+  overflow: hidden;
+  font: inherit;
+  line-height: inherit;
+  color: inherit;
+  background: #fff9e9;
+  border: 1px solid #7b886c;
+}
+.empty-span {
+  display: inline-block;
+  min-width: 0.8em;
+  border-bottom: 1px dotted #7b886c;
+}
 .notice {
   padding: 8px 24px;
   background: #eee0c0;

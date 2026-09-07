@@ -31,6 +31,28 @@ This describes implemented behavior, not the entire architecture roadmap.
   protected spans throw an error.
 - Workspace commit and undo/redo affect every staged document together.
 
+## Inline drafts
+
+Typing or pasting at a selection within one editable span, double-clicking a span,
+or pressing Enter opens a native text field in that span's position. The field
+contains source text only, including an empty string for an empty text element.
+Empty spans have a dotted underline so they can be selected with codes hidden.
+
+The draft is local to the UI until **Preview inline edit** and **Apply transaction**.
+Cancel or Escape discards it. Editing a draft dismisses its previous preview.
+Only one draft is active at a time; navigation, other editing commands, and Save As
+wait for apply or cancel. Workspace undo/redo clears a draft with a status message.
+The desktop checks the draft's source revision before staging it; stale drafts
+are refused. Closing the window with a draft offers to keep editing.
+
+The field supports native text composition and plain-text paste. Backspace/Delete
+expand deletion to whole graphemes, including combining sequences and ZWJ emoji.
+Tabs, line breaks, object placeholders, and invalid XML text are refused. Deletion
+at the field edge stops there. Cross-span selections and protected text cannot
+start an edit. Caret/selection offsets survive code visibility changes and are
+restored into the projection after apply/cancel (clamped to the resulting span).
+Typing inside a draft does not add workspace undo entries; applying it adds one.
+
 ## Protected content
 
 Fields (including results across paragraph boundaries), revisions, tracked run

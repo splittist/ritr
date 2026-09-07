@@ -57,6 +57,20 @@ async function createWindow() {
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) =>
     callback(false),
   );
+  window.webContents.on('will-prevent-unload', (event) => {
+    if (
+      process.env.RITR_SMOKE === '1' ||
+      dialog.showMessageBoxSync(window, {
+        type: 'question',
+        buttons: ['Keep editing', 'Discard draft and close'],
+        defaultId: 0,
+        cancelId: 0,
+        message: 'Close with an unapplied inline draft?',
+        detail: 'Preview and apply the draft, then Save As to keep it.',
+      }) === 1
+    )
+      event.preventDefault();
+  });
   window.on('close', (event) => {
     if (process.env.RITR_SMOKE !== '1' && workspace.documents().some((d) => d.dirty)) {
       const choice = dialog.showMessageBoxSync(window, {
@@ -89,7 +103,7 @@ app
       for (const { file, bytes } of files) workspace.open(basename(file), bytes);
       return snapshot();
     });
-    handle('previewEdit', (value: TextEdit) => {
+    handle('previewEdit', (value: TextEdit & { expectedRevision?: number }) => {
       if (
         !value ||
         typeof value !== 'object' ||
@@ -97,6 +111,12 @@ app
         !Number.isInteger(value.to)
       )
         throw new Error('Invalid text edit');
+      if (
+        value.expectedRevision !== undefined &&
+        (!Number.isInteger(value.expectedRevision) ||
+          workspace.document(string(value.documentId)).revision !== value.expectedRevision)
+      )
+        throw new Error('Inline draft is stale; cancel it and edit the current text.');
       return workspace.preview('Edit text', [
         {
           documentId: string(value.documentId),

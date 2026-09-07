@@ -4,11 +4,13 @@ import type { CodeToken, Story, Token } from '../engine/document';
 import type { Table } from '../engine/table';
 import { RevealEditor } from './RevealEditor';
 import { cellStyle, tableStyle } from './table-layout';
+import type { InlineEditing } from './inline-edit';
 
 interface Props {
   story: Story;
   codes: boolean;
   onSelect: (token: Token) => void;
+  inline: InlineEditing;
 }
 
 /** HTML owns table geometry; each text region reuses the same CodeMirror projection. */
@@ -32,7 +34,15 @@ function TextRegion({ range, ...props }: Props & { range: TokenRange }) {
       blocks: [],
     };
   }, [props.story, range.from, range.to]);
-  return <RevealEditor story={region} codes={props.codes} onSelect={props.onSelect} embedded />;
+  return (
+    <RevealEditor
+      story={region}
+      codes={props.codes}
+      onSelect={props.onSelect}
+      inline={props.inline}
+      embedded
+    />
+  );
 }
 function BlockView({ blocks, ...props }: Props & { blocks: Block[] }) {
   // Keep adjacent paragraph/code blocks in one editor, not one editor per paragraph.

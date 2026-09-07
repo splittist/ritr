@@ -39,6 +39,7 @@ const app = await electron.launch({
 try {
   console.log('Electron connected');
   const page = await app.firstWindow();
+  page.on('dialog', (dialog) => void dialog.accept().catch(() => {}));
   page.setDefaultTimeout(15000);
   console.log('Window loaded:', await page.title());
   const errors = [];
@@ -205,10 +206,166 @@ try {
   await page.locator('.editable-span').filter({ hasText: 'needle' }).waitFor();
   await page.getByRole('button', { name: 'Redo', exact: true }).click();
   await page.locator('.editable-span').filter({ hasText: 'Joined text' }).waitFor();
+  // Inline drafts stay outside the package until preview/commit, including empty runs.
+  await page.locator('.editable-span').filter({ hasText: 'Joined text' }).dblclick();
+  const inlineInput = page.getByRole('textbox', { name: 'Inline text', exact: true });
+  await inlineInput.fill('Draft café 👩‍💻');
+  await page.screenshot({ path: join(output, 'inline-draft.png'), fullPage: true });
+  await inlineInput.press('End');
+  await inlineInput.press('Backspace');
+  assert.equal(await inlineInput.inputValue(), 'Draft café ');
+  await inlineInput.press('Backspace');
+  await inlineInput.pressSequentially('!');
+  await page.getByRole('button', { name: 'Preview inline edit' }).click();
+  await page.getByLabel('Change preview').waitFor();
+  assert.equal(await page.locator('.diff ins').textContent(), 'Draft café!');
+  await inlineInput.fill('Draft revised');
+  assert.equal(
+    await page.getByLabel('Change preview').count(),
+    0,
+    'Typing expires the old preview',
+  );
+  await inlineInput.evaluate((input) => {
+    input.setSelectionRange(2, 5);
+    input.dispatchEvent(new Event('select', { bubbles: true }));
+  });
+  await page.getByLabel('Reveal codes', { exact: true }).uncheck();
+  assert.equal(await inlineInput.inputValue(), 'Draft revised');
+  await page.waitForFunction(() => {
+    const input = document.querySelector('.inline-text');
+    return input?.selectionStart === 2 && input?.selectionEnd === 5;
+  });
+  assert.deepEqual(
+    await inlineInput.evaluate((input) => [input.selectionStart, input.selectionEnd]),
+    [2, 5],
+  );
+  await page.getByRole('button', { name: 'Cancel inline edit' }).click();
+  await page.locator('.editable-span').filter({ hasText: 'Joined text' }).waitFor();
+  // A saved cross-run replacement left the second source span empty.
+  const emptySpan = page
+    .locator('.editable-span')
+    .filter({ hasText: /^\u200b$/ })
+    .first();
+  await emptySpan.dblclick();
+  assert.equal(await inlineInput.inputValue(), '');
+  await inlineInput.pressSequentially('Inline ');
+  await inlineInput.evaluate((input) => {
+    input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    input.value = 'Inline café';
+    input.dispatchEvent(
+      new InputEvent('input', {
+        bubbles: true,
+        inputType: 'insertCompositionText',
+        isComposing: true,
+      }),
+    );
+    input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: 'é' }));
+  });
+  await inlineInput.press('End');
+  await inlineInput.evaluate((input) => {
+    const clipboardData = new DataTransfer();
+    clipboardData.setData('text/plain', 'bad\nline');
+    const event = new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true });
+    input.dispatchEvent(event);
+    if (!event.defaultPrevented) throw new Error('Multiline paste was not refused');
+  });
+  await inlineInput.press('Enter');
+  assert.equal(await inlineInput.inputValue(), 'Inline café');
+  await page.getByRole('button', { name: 'Preview inline edit' }).click();
+  await page.getByRole('button', { name: 'Apply transaction' }).click();
+  await page.locator('.editable-span').filter({ hasText: 'Inline café' }).waitFor();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await emptySpan.waitFor();
+  await page.getByRole('button', { name: 'Redo', exact: true }).click();
+  await page.locator('.editable-span').filter({ hasText: 'Inline café' }).waitFor();
+  const inlinePath = join(output, 'inline-edited.docx');
+  await app.evaluate(({ dialog }, path) => {
+    dialog.showSaveDialog = async () => ({ canceled: false, filePath: path });
+  }, inlinePath);
+  await page.getByRole('button', { name: 'Save As…' }).click();
+  await page.waitForFunction(() =>
+    document.querySelector('footer')?.textContent.includes('Saved and verified'),
+  );
+  const savedInline = unzipSync(await readFile(inlinePath));
+  assert.ok(strFromU8(savedInline['word/document.xml']).includes('Inline café'));
+  for (const [part, bytes] of Object.entries(crossRunParts)) {
+    if (part !== 'word/document.xml') assert.deepEqual(savedInline[part], bytes, part);
+  }
+  await page.getByRole('button', { name: /tables.docx/ }).click();
+  await page.locator('.editable-span').filter({ hasText: 'Signed confirmation' }).dblclick();
+  await inlineInput.fill('Inline cell');
+  await page.getByRole('button', { name: 'Preview inline edit' }).click();
+  await page.getByRole('button', { name: 'Apply transaction' }).click();
+  await page.locator('.document-table .editable-span').filter({ hasText: 'Inline cell' }).waitFor();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await page.locator('.editable-span').filter({ hasText: 'Signed confirmation' }).waitFor();
+  await page.getByLabel('Reveal codes', { exact: true }).check();
+  await page.locator('.editable-span').filter({ hasText: 'Signed confirmation' }).dblclick();
+  await inlineInput.fill('Stale draft');
+  await page.evaluate(async () => {
+    const snapshot = await window.ritr.snapshot();
+    const doc = snapshot.documents.find((d) => d.name === 'tables.docx');
+    const token = doc.model.stories
+      .flatMap((s) => s.tokens)
+      .find((t) => t.kind === 'text' && t.span.text === 'Signed confirmation');
+    const preview = await window.ritr.previewEdit({
+      documentId: doc.id,
+      spanId: token.span.id,
+      from: 0,
+      to: token.span.text.length,
+      text: 'External edit',
+    });
+    await window.ritr.commit(preview.id);
+  });
+  await page.getByRole('button', { name: 'Preview inline edit' }).click();
+  await page.waitForFunction(() =>
+    document.querySelector('footer')?.textContent.includes('Inline draft is stale'),
+  );
+  assert.equal(await page.getByLabel('Change preview').count(), 0);
+  await page.getByRole('button', { name: 'Cancel inline edit' }).click();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await page.screenshot({ path: join(output, 'inline-editing.png'), fullPage: true });
+  await page.getByRole('button', { name: /cross-run.docx/ }).click();
+  await page.getByLabel('Reveal codes', { exact: true }).uncheck();
+  const joinedSpan = page.locator('.editable-span').filter({ hasText: 'Joined text' });
+  await joinedSpan.click();
+  await page.keyboard.press('x');
+  await inlineInput.waitFor();
+  assert.ok((await inlineInput.inputValue()).includes('x'));
+  await inlineInput.press('Escape');
+  await joinedSpan.waitFor();
+  await joinedSpan.click();
+  await page.keyboard.press('Delete');
+  await inlineInput.waitFor();
+  assert.equal((await inlineInput.inputValue()).length, 'Joined text'.length - 1);
+  await inlineInput.press('Escape');
+  await joinedSpan.click();
+  await joinedSpan.evaluate((span) => {
+    const clipboardData = new DataTransfer();
+    clipboardData.setData('text/plain', 'Pasted café');
+    span.dispatchEvent(
+      new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }),
+    );
+  });
+  await inlineInput.waitFor();
+  assert.ok((await inlineInput.inputValue()).includes('Pasted café'));
+  await inlineInput.press('Escape');
+  // A selection across adjacent source runs remains protected even with codes hidden.
+  const editorContent = page.locator('.cm-content').first();
+  await editorContent.press('Control+Home');
+  await editorContent.press('Control+Shift+End');
+  await editorContent.press('x');
+  assert.equal(await inlineInput.count(), 0);
+  await page.getByRole('button', { name: /review.docx/ }).click();
+  await page.locator('.protected-span').first().dblclick();
+  assert.equal(await inlineInput.count(), 0);
   assert.deepEqual(errors, []);
   console.log(
-    `Desktop smoke passed: editing, preview, multi-story and cross-run replacement, undo/redo, Save As, code inspection, lists and merged/nested tables. Artifacts: ${output}`,
+    `Desktop smoke passed: inspector and inline editing, Unicode drafts, stale/boundary refusal, preview, cross-run replacement, undo/redo, Save As, code inspection, lists and merged/nested tables. Artifacts: ${output}`,
   );
+} catch (error) {
+  console.error(error);
+  throw error;
 } finally {
   await app.close();
 }

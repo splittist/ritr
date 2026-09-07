@@ -44,6 +44,9 @@ npm start -- fixtures/generated/plain.docx fixtures/generated/review.docx fixtur
 
 Select text in the document, edit it in the inspector, and choose **Preview text
 edit**, then **Apply transaction**. Clicking a code shows its source XML.
+For inline editing, type at a text selection or double-click a span, then choose
+**Preview inline edit** and **Apply transaction**. Escape or **Cancel inline edit**
+discards the draft. Inline edits stay within one span, including table-cell text.
 Workspace replacement uses the same preview/commit flow. Undo reverses the entire
 transaction. Save As creates a new verified DOCX and refuses existing paths.
 
@@ -63,8 +66,8 @@ transaction. Save As creates a new verified DOCX and refuses existing paths.
 - Synthetic `docxfix` fixtures, preservation/command/save tests, and desktop
   end-to-end verification.
 
-This is a working text-span editor and document workbench. Direct typing in the
-document, paragraph split/join, formatting changes, comment/revision editing,
+This is a working text-span editor and document workbench. Paragraph split/join,
+formatting changes, comment/revision editing,
 paginated preview, and in-place saves are still future work.
 See the precise [editing contract](docs/editing-contract.md).
 

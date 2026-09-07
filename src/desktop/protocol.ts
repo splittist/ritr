@@ -9,7 +9,7 @@ export interface Snapshot {
 export interface DesktopApi {
   snapshot(): Promise<Snapshot>;
   open(): Promise<Snapshot>;
-  previewEdit(edit: TextEdit): Promise<ChangePreview>;
+  previewEdit(edit: TextEdit & { expectedRevision?: number }): Promise<ChangePreview>;
   previewReplace(
     query: string,
     replacement: string,

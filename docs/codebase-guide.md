@@ -122,6 +122,11 @@ workspace in Electron's main process owns committed document state. The
 CodeMirror buffer is read-only; it contains display placeholders for codes,
 which are never written into the DOCX. Selecting a span opens the text inspector.
 The inspector submits a `TextEdit`, exactly like any other engine client.
+Inline editing uses a native textarea widget in place of one span. `App.tsx`
+owns the draft and source revision; `RevealEditor.tsx` keeps its field and
+selection alive while typing, and restores offsets when rebuilding the projection.
+`inline-edit.ts` defines draft callbacks, input validation, and grapheme deletion.
+The desktop refuses a draft whose expected document revision is no longer current.
 
 The current UI deliberately does not translate arbitrary CodeMirror changes
 into commands. That requires paragraph and formatting-boundary semantics first.
@@ -136,8 +141,8 @@ into commands. That requires paragraph and formatting-boundary semantics first.
    multi-document failure behavior, undo/redo, and save/reopen.
 6. Expose the operation through the IPC contract and UI.
 
-The next substantial slice should be direct typing within a span followed by
-paragraph split/join. Structural identity management comes before widening the
+The next substantial slice should establish identity remapping for paragraph
+split/join. Structural identity management comes before widening the
 editing surface. The read-only block hierarchy now exists, but is not yet a
 structural editing graph; run mutation and identity remapping remain future work.
 

@@ -4,6 +4,7 @@ import type { ChangePreview, SearchMatch } from '../engine/workspace';
 import type { Token } from '../engine/document';
 import type { PartDifference } from '../package/docx';
 import { StoryView } from './StoryView';
+import { validInlineText, type InlineDraft, type InlineEditing } from './inline-edit';
 
 declare global {
   interface Window {
@@ -28,6 +29,8 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('Open a DOCX to explore its text and structure.');
   const [error, setError] = useState('');
+  const [inlineDraft, setInlineDraft] = useState<InlineDraft & { revision: number }>();
+  const [restore, setRestore] = useState<InlineEditing['restore']>();
   const document = state.documents.find((d) => d.id === documentId) ?? state.documents[0];
   const story = document?.model.stories.find((s) => s.id === storyId) ?? document?.model.stories[0];
   const api = window.ritr;
@@ -43,6 +46,9 @@ export function App() {
     }
   }
   function refresh(snapshot: Snapshot) {
+    if (inlineDraft) setMessage('Inline draft cleared because the workspace changed.');
+    setInlineDraft(undefined);
+    setRestore(undefined);
     setState(snapshot);
     setPreview(undefined);
     setMatches(undefined);
@@ -53,6 +59,66 @@ export function App() {
     setSelected(token);
     setDraft(token.kind === 'text' ? token.span.text : '');
   }
+  const inline: InlineEditing = {
+    busy,
+    draft: inlineDraft,
+    restore,
+    message: setError,
+    start: (spanId, anchor, head, insert) => {
+      if (busy) return;
+      if (inlineDraft) {
+        setError('Apply or cancel the current inline draft before editing another span.');
+        return;
+      }
+      const token = story?.tokens.find((t) => t.kind === 'text' && t.span.id === spanId);
+      if (!document || token?.kind !== 'text' || !token.span.editable) return;
+      const text =
+        insert === undefined
+          ? token.span.text
+          : token.span.text.slice(0, anchor) + insert + token.span.text.slice(head);
+      if (!validInlineText(text)) {
+        setError('This text cannot be edited inline.');
+        return;
+      }
+      setPreview(undefined);
+      setRestore(undefined);
+      setError('');
+      setInlineDraft({
+        spanId,
+        text,
+        revision: document.revision,
+        anchor: insert === undefined ? anchor : anchor + insert.length,
+        head: insert === undefined ? head : anchor + insert.length,
+      });
+    },
+    change: (text, anchor, head) => {
+      if (inlineDraft && !busy) {
+        if (text !== inlineDraft.text) setPreview(undefined);
+        setInlineDraft({ ...inlineDraft, text, anchor, head });
+      }
+    },
+    cancel: () => {
+      if (busy) return;
+      if (inlineDraft)
+        setRestore({
+          spanId: inlineDraft.spanId,
+          anchor: inlineDraft.anchor,
+          head: inlineDraft.head,
+        });
+      setInlineDraft(undefined);
+      setPreview(undefined);
+      setError('');
+    },
+  };
+  useEffect(() => {
+    if (!inlineDraft) return;
+    const preventClose = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', preventClose);
+    return () => window.removeEventListener('beforeunload', preventClose);
+  }, [!!inlineDraft]);
   useEffect(() => {
     if (api)
       void run(async () => {
@@ -81,10 +147,10 @@ export function App() {
           ritr<span>DOCUMENT WORKBENCH</span>
         </div>
         <div className="toolbar">
-          <button className="primary" disabled={!api || busy} onClick={open}>
+          <button className="primary" disabled={!api || busy || !!inlineDraft} onClick={open}>
             Open documents
           </button>
-          <button disabled={!document || busy} onClick={save}>
+          <button disabled={!document || busy || !!inlineDraft} onClick={save}>
             Save As…
           </button>
           <span className="divider" />
@@ -120,9 +186,11 @@ export function App() {
             {state.documents.map((d) => (
               <button
                 key={d.id}
+                disabled={!!inlineDraft}
                 className={`document-link ${document?.id === d.id ? 'active' : ''}`}
                 onClick={() => {
                   setDocumentId(d.id);
+                  setRestore(undefined);
                   setStoryId('');
                   setSelected(undefined);
                   setReport(undefined);
@@ -144,9 +212,11 @@ export function App() {
                 {document.model.stories.map((s) => (
                   <button
                     key={s.id}
+                    disabled={!!inlineDraft}
                     className={`story-link ${story?.id === s.id ? 'active' : ''}`}
                     onClick={() => {
                       setStoryId(s.id);
+                      setRestore(undefined);
                       setSelected(undefined);
                     }}
                   >
@@ -183,10 +253,44 @@ export function App() {
           {story ? (
             <>
               <div className="editor-caption">
-                <span>Select text to edit. Click a code to inspect its source.</span>
+                <span>
+                  Type in a span, or double-click to edit inline. Click a code to inspect it.
+                </span>
                 <span>{document?.dirty ? 'Unsaved changes' : 'Saved snapshot'}</span>
               </div>
-              <StoryView story={story} codes={codes} onSelect={select} />
+              {inlineDraft && (
+                <div className="inline-toolbar" aria-label="Inline draft">
+                  <span>Inline draft · one text span · not yet applied</span>
+                  <button
+                    disabled={busy}
+                    onClick={() =>
+                      void run(async () => {
+                        const token = story.tokens.find(
+                          (t) => t.kind === 'text' && t.span.id === inlineDraft.spanId,
+                        );
+                        if (token?.kind !== 'text')
+                          throw new Error('The draft span is no longer available.');
+                        setPreview(
+                          await api!.previewEdit({
+                            documentId: document!.id,
+                            spanId: inlineDraft.spanId,
+                            from: 0,
+                            to: token.span.text.length,
+                            text: inlineDraft.text,
+                            expectedRevision: inlineDraft.revision,
+                          }),
+                        );
+                      })
+                    }
+                  >
+                    Preview inline edit
+                  </button>
+                  <button disabled={busy} onClick={inline.cancel}>
+                    Cancel inline edit
+                  </button>
+                </div>
+              )}
+              <StoryView story={story} codes={codes} onSelect={select} inline={inline} />
             </>
           ) : (
             <section className="welcome">
@@ -232,7 +336,7 @@ export function App() {
                 }}
               />
               <button
-                disabled={!query || !document || busy}
+                disabled={!query || !document || busy || !!inlineDraft}
                 onClick={() =>
                   void run(async () => {
                     setMatches(await api!.search(query, caseSensitive));
@@ -243,7 +347,7 @@ export function App() {
                 Find
               </button>
               <button
-                disabled={!query || !document || busy}
+                disabled={!query || !document || busy || !!inlineDraft}
                 onClick={() =>
                   void run(async () =>
                     setPreview(await api!.previewReplace(query, replacement, caseSensitive)),
@@ -276,6 +380,7 @@ export function App() {
                 {matches.map((m, i) => (
                   <button
                     key={i}
+                    disabled={!!inlineDraft}
                     onClick={() => {
                       setDocumentId(m.documentId);
                       setStoryId(m.storyId);
@@ -316,6 +421,12 @@ export function App() {
                 onClick={() =>
                   void run(async () => {
                     refresh(await api!.commit(preview.id));
+                    if (inlineDraft)
+                      setRestore({
+                        spanId: inlineDraft.spanId,
+                        anchor: inlineDraft.anchor,
+                        head: inlineDraft.head,
+                      });
                     setMessage('Transaction applied. Undo reverses the complete change.');
                   })
                 }
@@ -346,12 +457,14 @@ export function App() {
               <textarea
                 id="span-text"
                 value={draft}
-                disabled={!selected.span.editable || busy}
+                disabled={!selected.span.editable || busy || !!inlineDraft}
                 onChange={(e) => setDraft(e.target.value)}
               />
               <button
                 className="primary full"
-                disabled={!selected.span.editable || busy || draft === selected.span.text}
+                disabled={
+                  !selected.span.editable || busy || !!inlineDraft || draft === selected.span.text
+                }
                 onClick={() =>
                   void run(async () =>
                     setPreview(
