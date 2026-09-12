@@ -63,13 +63,23 @@ function properties(node: XmlNode | undefined): Formatting {
 /** Small, explicit style cascade; numbering/table/conditional styles are not resolved. */
 function styleResolver(styles: Styles) {
   const defaults = properties(styles.defaults('rPr'));
-  const resolve = (id: string | undefined): Formatting =>
-    Object.assign({}, ...styles.chain(id, []).map((style) => properties(child(style, 'rPr'))));
-  return (paragraphStyle?: string, runStyle?: string): Formatting => ({
-    ...defaults,
-    ...resolve(paragraphStyle ?? styles.defaultParagraph),
-    ...resolve(runStyle),
-  });
+  return (paragraphStyle?: string, runStyle?: string): Formatting => {
+    const result = { ...defaults };
+    for (const style of [
+      ...styles.chain(paragraphStyle ?? styles.defaultParagraph, []),
+      ...styles.chain(runStyle, []),
+    ]) {
+      const layer = properties(child(style, 'rPr'));
+      for (const [key, value] of Object.entries(layer)) {
+        // Bold/italic toggle in styles, but direct run properties remain absolute.
+        if (key === 'b' || key === 'i') {
+          if (['on', 'true', '1'].includes(value))
+            result[key] = ['on', 'true', '1'].includes(result[key] ?? '') ? 'off' : 'on';
+        } else result[key] = value;
+      }
+    }
+    return result;
+  };
 }
 
 export function readDocument(pkg: DocxPackage): DocumentModel {

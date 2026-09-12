@@ -1,3 +1,4 @@
+import { textStyle } from './text-format';
 import { editorCommand } from './keymap';
 import { type TextPosition } from '../engine/text-range';
 import { useEffect, useRef } from 'react';
@@ -306,6 +307,7 @@ export function RevealEditor({
                 class: `${token.span.editable ? 'editable-span' : 'protected-span'}${token.span.text ? '' : ' empty-span'}`,
                 attributes: {
                   'data-span-id': token.span.id,
+                  style: textStyle(token.span),
                   ...(token.span.text ? {} : { title: 'Empty text span' }),
                 },
               }),

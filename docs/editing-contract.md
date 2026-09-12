@@ -141,6 +141,24 @@ untouched. This is not modern-comment editing support.
 The plain-text view is a **review projection**, not Word's final/accepted text:
 it includes visible revision text and placeholders for opaque content.
 
+## Text display
+
+The document projection remains fixed-width and fixed-size, while showing bold,
+italic, underline, text color, and the fixed OOXML `w:highlight` palette. Direct
+properties override inherited properties; bold and italic toggle through style
+chains. Explicit off/none values clear inherited formatting.
+
+Six-digit RGB colors are displayed; `auto` uses the UI text color. Theme colors
+use their stored RGB fallback when present; theme tint/shade resolution is not
+implemented. Highlighting supports all 16 named colors and `none`, independently
+of run shading (`w:shd`). Underline variants use the nearest CSS line style;
+word-only, heavy, and compound variants are approximate. Font families and sizes
+from the document are intentionally ignored. The native inline draft field remains
+plain text; applying the draft restores the formatted projection.
+
+The palette follows [OOXML HighlightColorValues](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.highlightcolorvalues?view=openxml-3.0.1).
+This is display support; formatting mutation commands remain future work.
+
 ## Paragraph display
 
 Generated numbers and bullets appear in both views. They are selectable display

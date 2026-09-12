@@ -80,6 +80,7 @@ defaults. Changes apply immediately and persist locally.
 - Snapshot-owned source identities, retained through targeted XML patches and undo/redo.
 - Body, header/footer, note and comment stories, source-bound text, formatting
   inspection, tables/hyperlinks, revision boundaries, and opaque content codes.
+- Fixed-width text with bold, italic, underline, RGB color, and OOXML highlighting.
 - Generated multilevel numbers and bullets, style-linked headings, restart and
   continuation handling, plus approximate paragraph and hanging indentation.
 - Table grids, horizontal/vertical merges, nested tables, approximate widths and

@@ -205,3 +205,10 @@ through every input, and stage one transaction. Replacement uses the first selec
 character's format; deletion keeps that typing format. Caret ownership survives
 apply, and explicit empty-run editing retains the chosen properties. Structural
 and protected boundaries remain enforced. Paragraph split/join remains next.
+
+### Implemented slice: lightweight text formatting display
+
+The fixed-width projection shows bold, italic, underline, RGB text colors, and
+OOXML highlights in both code views. Style bold/italic toggles are resolved before
+direct overrides. Display CSS uses only validated colors and known property values.
+Native draft fields remain plain text. Paragraph split/join is the next slice.

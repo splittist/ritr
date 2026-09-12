@@ -18,7 +18,11 @@ crossRunParts['word/document.xml'] = strToU8(
       'A small document with a clear beginning.',
       'Cross-run </w:t></w:r><w:r><w:rPr><w:b/></w:rPr><w:t>needle',
     )
-    .replace('Replace this phrase', 'Unrelated text'),
+    .replace('Replace this phrase', 'Unrelated text')
+    .replace(
+      '<w:sectPr',
+      '<w:p><w:r><w:rPr><w:b/><w:i/><w:u w:val="single"/><w:color w:val="1234AB"/><w:highlight w:val="yellow"/><w:rFonts w:ascii="Arial"/><w:sz w:val="72"/></w:rPr><w:t>Formatted preview</w:t></w:r><w:r><w:t> Plain preview</w:t></w:r></w:p><w:sectPr',
+    ),
 );
 await writeFile(crossRunPath, zipSync(crossRunParts));
 const env = { ...process.env, RITR_SMOKE: '1' };
@@ -266,6 +270,37 @@ try {
   );
   assert.ok((await readFile(tablePath)).length > 0);
   await page.getByRole('button', { name: /cross-run.docx/ }).click();
+  for (const codes of [true, false]) {
+    await page.getByLabel('Reveal codes', { exact: true }).setChecked(codes);
+    const formatting = await page
+      .locator('.editable-span')
+      .filter({ hasText: /^Formatted preview$/ })
+      .evaluate((span) => {
+        const style = getComputedStyle(span);
+        const plain = getComputedStyle(
+          [...document.querySelectorAll('.editable-span')].find(
+            (s) => s.textContent === ' Plain preview',
+          ),
+        );
+        return {
+          weight: style.fontWeight,
+          italic: style.fontStyle,
+          underline: style.textDecorationLine,
+          color: style.color,
+          highlight: style.backgroundColor,
+          sameFont: style.fontFamily === plain.fontFamily && style.fontSize === plain.fontSize,
+        };
+      });
+    assert.deepEqual(formatting, {
+      weight: '700',
+      italic: 'italic',
+      underline: 'underline',
+      color: 'rgb(18, 52, 171)',
+      highlight: 'rgb(255, 255, 0)',
+      sameFont: true,
+    });
+  }
+  await page.screenshot({ path: join(output, 'text-formatting.png'), fullPage: true });
   // Arbitrary selections cross formatting runs in either projection.
   const crossInput = page.getByRole('textbox', { name: 'Inline text', exact: true });
   for (const codes of [false, true]) {
