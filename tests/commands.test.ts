@@ -1,3 +1,4 @@
+import { shortcutCommand, defaultKeymap } from '../src/ui/keymap';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -5,7 +6,6 @@ import {
   commandReason,
   filterCommands,
   invokeCommand,
-  shortcutCommand,
   type CommandContext,
 } from '../src/ui/commands';
 
@@ -103,8 +103,6 @@ test('palette search matches multiple terms and command IDs and shortcut combina
   assert.equal(filterCommands('not-a-command').length, 0);
   assert.equal(filterCommands('').length, commands.length);
   assert.equal(new Set(commands.map((command) => command.id)).size, commands.length);
-  const shortcuts = commands.flatMap((command) =>
-    'shortcuts' in command ? [...command.shortcuts] : [],
-  );
+  const shortcuts = defaultKeymap.map((binding) => `${binding.scope}:${binding.key}`);
   assert.equal(new Set(shortcuts).size, shortcuts.length);
 });

@@ -51,6 +51,8 @@ previews. Undo/redo moves whole transactions between two stacks.
 | `src/engine/paragraph.ts` | Paragraph list membership and indentation with property provenance |
 | `src/ui/paragraph-layout.ts` | Source indentation to bounded, approximate display geometry |
 | `src/engine/workspace.ts` | Exclusive mutation API: search, preview, commit, history, events, saved state |
+| `src/engine/text-range.ts` | Shared text boundaries, source positions, caret affinity, and formatted piece edits |
+| `src/ui/keymap.ts` | Default chords, scoped matching, validated overrides, and shortcut presentation |
 | `src/engine/search.ts` | Literal cross-run matching with structural boundaries and source ranges |
 | `src/io/save.ts` | Filesystem boundary: stage, validate, sync, publish a new file or directory |
 | `src/cli.ts` | Thin command-line client of the same engine |
@@ -58,7 +60,7 @@ previews. Undo/redo moves whole transactions between two stacks.
 | `src/desktop/main.ts` | Owns workspace and dialogs; validates IPC callers and arguments |
 | `src/desktop/preload.ts` | Exposes named operations; no generic IPC or filesystem access |
 | `src/ui/App.tsx` | Workspace navigation, inspector, search, previews and reports |
-| `src/ui/commands.ts` | Typed GUI command IDs, labels, shortcuts, availability, and guarded dispatch |
+| `src/ui/commands.ts` | Typed command IDs, GUI labels, availability, and guarded dispatch |
 | `src/ui/CommandPalette.tsx` | Modal command search, keyboard selection, and unavailable-action explanations |
 | `src/ui/RevealEditor.tsx` | CodeMirror projection with atomic code widgets and source selection |
 
@@ -143,11 +145,11 @@ workspace in Electron's main process owns committed document state. The
 CodeMirror buffer is read-only; it contains display placeholders for codes,
 which are never written into the DOCX. Selecting a span opens the text inspector.
 The inspector submits a `TextEdit`, exactly like any other engine client.
-Inline editing uses a native textarea widget in place of one span. `App.tsx`
-owns the draft and source revision; `RevealEditor.tsx` keeps its field and
-selection alive while typing, and restores offsets when rebuilding the projection.
-`inline-edit.ts` defines draft callbacks, input validation, and grapheme deletion.
-The desktop refuses a draft whose expected document revision is no longer current.
+Inline editing uses a native textarea widget for a contiguous editable text segment.
+`App.tsx` owns the source revision and draft history; `inline-edit.ts` maintains one
+piece per source span and reconciles individual browser input events. The desktop
+stages those pieces with `previewPieces`, preserving all untouched run properties.
+`text-range.ts` supplies shared segmentation and source-position mapping.
 
 `commands.ts` is a small GUI action registry. Buttons, palette entries, and global
 shortcuts share command metadata and availability checks. `App.tsx` supplies one
@@ -194,3 +196,7 @@ Library references used for these boundaries:
 [fflate](https://github.com/101arrowz/fflate),
 [saxes](https://github.com/lddubeau/saxes), and
 [Electron security guidance](https://www.electronjs.org/docs/latest/tutorial/security).
+
+Key chords and focus scopes are defined separately in `keymap.ts`. The sidebar's
+JSON overrides are validated, persisted in local storage, and applied to both
+matching and shortcut labels. Editor deletion and draft history also use this map.

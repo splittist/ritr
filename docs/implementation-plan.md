@@ -193,3 +193,15 @@ build, and desktop smoke checks pass. The desktop coverage includes palette
 filtering, unavailable/protected actions, keyboard navigation, focus and field
 selection restoration, native text undo, workspace history shortcuts, and the
 separate preview/apply shortcuts.
+
+### Implemented slice: remappable keybindings and cross-run inline editing
+
+Commands and key chords are separate. A validated, persisted override map drives
+shortcut matching and displayed hints; editor deletion and draft history are named
+actions with focus-specific bindings.
+
+Inline drafts now cover contiguous editable segments, retain source-run pieces
+through every input, and stage one transaction. Replacement uses the first selected
+character's format; deletion keeps that typing format. Caret ownership survives
+apply, and explicit empty-run editing retains the chosen properties. Structural
+and protected boundaries remain enforced. Paragraph split/join remains next.

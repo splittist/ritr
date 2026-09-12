@@ -1,3 +1,4 @@
+import { textSegments } from './text-range';
 import type { Story, TextSpan } from './document';
 
 export interface SearchRange {
@@ -41,18 +42,12 @@ export function searchStory(story: Story, expression: RegExp): StoryMatch[] {
     group = [];
     text = '';
   };
-  for (const token of story.tokens) {
-    if (token.kind === 'text') {
-      group.push({
-        span: token.span,
-        start: text.length,
-        end: text.length + token.span.text.length,
-      });
-      text += token.span.text;
-    } else if (token.category !== 'format') {
-      flush();
+  for (const segment of textSegments(story)) {
+    for (const span of segment.spans) {
+      group.push({ span, start: text.length, end: text.length + span.text.length });
+      text += span.text;
     }
+    flush();
   }
-  flush();
   return result;
 }

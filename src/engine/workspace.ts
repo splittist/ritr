@@ -1,3 +1,10 @@
+import {
+  resolveTextRange,
+  replacePieces,
+  editingSegments,
+  type TextPosition,
+  type TextPiece,
+} from './text-range';
 import { DocxPackage, comparePackages, type PartDifference } from '../package/docx';
 import { assertText, descendants, textPatch } from '../package/xml';
 import { readDocument, spans, type DocumentModel } from './document';
@@ -157,6 +164,61 @@ export class Workspace {
           })),
         ),
       matches.filter((m) => !m.editable).length,
+    );
+  }
+  previewRange(edit: {
+    documentId: string;
+    storyId: string;
+    anchor: TextPosition;
+    head: TextPosition;
+    text: string;
+    expectedRevision: number;
+  }): ChangePreview & { caret: TextPosition } {
+    const document = this.document(edit.documentId);
+    if (document.revision !== edit.expectedRevision)
+      throw new Error('Inline draft is stale; cancel it and edit the current text.');
+    const story = document.model.stories.find((s) => s.id === edit.storyId);
+    if (!story) throw new Error('Unknown story');
+    const range = resolveTextRange(story, edit.anchor, edit.head);
+    const result = replacePieces(range.pieces, range.from, range.to, edit.text, edit.anchor);
+    const preview = this.previewPieces({ ...edit, pieces: result.pieces });
+    return { ...preview, caret: result.caret };
+  }
+  previewPieces(edit: {
+    documentId: string;
+    storyId: string;
+    pieces: TextPiece[];
+    expectedRevision: number;
+  }): ChangePreview {
+    const document = this.document(edit.documentId);
+    if (document.revision !== edit.expectedRevision)
+      throw new Error('Inline draft is stale; cancel it and edit the current text.');
+    const story = document.model.stories.find((s) => s.id === edit.storyId);
+    const segment =
+      story &&
+      editingSegments(story).find(
+        (s) =>
+          s.spans.length === edit.pieces.length &&
+          s.spans.every((span, i) => span.id === edit.pieces[i]?.spanId),
+      );
+    if (!segment)
+      throw new Error('Draft crosses a structural boundary or has invalid source spans');
+    return this.preview(
+      'Edit text range',
+      edit.pieces.flatMap((piece, i) => {
+        const span = segment.spans[i]!;
+        return span.text === piece.text
+          ? []
+          : [
+              {
+                documentId: edit.documentId,
+                spanId: span.id,
+                from: 0,
+                to: span.text.length,
+                text: piece.text,
+              },
+            ];
+      }),
     );
   }
   preview(label: string, edits: readonly TextEdit[], skipped = 0): ChangePreview {

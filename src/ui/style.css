@@ -750,3 +750,21 @@ footer.error {
     display: none;
   }
 }
+
+.keymap-settings {
+  margin: 20px 0;
+  font-size: 12px;
+}
+.keymap-settings summary {
+  cursor: pointer;
+}
+.keymap-settings textarea {
+  width: 100%;
+  min-height: 110px;
+  font-family: Consolas, monospace;
+  font-size: 11px;
+  resize: vertical;
+}
+.keymap-settings button {
+  margin-top: 8px;
+}

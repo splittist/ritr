@@ -1,3 +1,11 @@
+export type EditorCommandId =
+  | 'text.deleteBackward'
+  | 'text.deleteForward'
+  | 'text.edit'
+  | 'text.cancel'
+  | 'text.undo'
+  | 'text.redo';
+
 export interface CommandContext {
   connected: boolean;
   busy: boolean;
@@ -16,8 +24,6 @@ interface Definition {
   id: string;
   label: string;
   description: string;
-  shortcuts?: readonly string[];
-  nativeUndo?: boolean;
   unavailable: (context: CommandContext) => string | undefined;
 }
 const documentRequired = (c: CommandContext) =>
@@ -35,29 +41,24 @@ export const commands = [
     id: 'commands.open',
     label: 'Show commands',
     description: 'Search available actions and keyboard shortcuts.',
-    shortcuts: ['Ctrl+Shift+P'],
     unavailable: () => undefined,
   },
   {
     id: 'file.open',
     label: 'Open documents',
     description: 'Open one or more DOCX files.',
-    shortcuts: ['Ctrl+O'],
     unavailable: noInlineDraft,
   },
   {
     id: 'file.saveAs',
     label: 'Save As…',
     description: 'Save and verify a new copy of the current document.',
-    shortcuts: ['Ctrl+Shift+S'],
     unavailable: (c: CommandContext) => documentRequired(c) ?? noInlineDraft(c),
   },
   {
     id: 'history.undo',
     label: 'Undo',
     description: 'Undo the last workspace transaction; clears any inline draft.',
-    shortcuts: ['Ctrl+Z'],
-    nativeUndo: true,
     unavailable: (c: CommandContext) =>
       !c.canUndo ? 'No workspace transaction to undo.' : undefined,
   },
@@ -65,15 +66,13 @@ export const commands = [
     id: 'history.redo',
     label: 'Redo',
     description: 'Redo the last undone workspace transaction; clears any inline draft.',
-    shortcuts: ['Ctrl+Y', 'Ctrl+Shift+Z'],
-    nativeUndo: true,
     unavailable: (c: CommandContext) =>
       !c.canRedo ? 'No workspace transaction to redo.' : undefined,
   },
   {
     id: 'edit.inline',
-    label: 'Edit selected span inline',
-    description: 'Start an inline draft at the selected text span.',
+    label: 'Edit selection inline',
+    description: 'Start an inline draft across adjacent formatting runs.',
     unavailable: (c: CommandContext) =>
       documentRequired(c) ?? noInlineDraft(c) ?? c.selectionReason,
   },
@@ -81,7 +80,6 @@ export const commands = [
     id: 'edit.preview',
     label: 'Preview text edit',
     description: 'Preview the inline draft or inspector text changes.',
-    shortcuts: ['Ctrl+Enter'],
     unavailable: (c: CommandContext) => documentRequired(c) ?? c.editReason,
   },
   {
@@ -95,7 +93,6 @@ export const commands = [
     id: 'search.focus',
     label: 'Focus workspace search',
     description: 'Enter a literal query to find text across open documents.',
-    shortcuts: ['Ctrl+F'],
     unavailable: documentRequired,
   },
   {
@@ -114,7 +111,6 @@ export const commands = [
     id: 'transaction.apply',
     label: 'Apply transaction',
     description: 'Apply the currently displayed preview as one undoable change.',
-    shortcuts: ['Ctrl+Shift+Enter'],
     unavailable: (c: CommandContext) =>
       !c.hasPreview
         ? 'Create a preview first.'
@@ -132,7 +128,6 @@ export const commands = [
     id: 'view.codes',
     label: 'Toggle Reveal Codes',
     description: 'Show or hide document formatting and structure codes.',
-    shortcuts: ['Ctrl+Shift+E'],
     unavailable: documentRequired,
   },
   {
@@ -174,29 +169,4 @@ export function filterCommands(query: string) {
       `${command.label} ${command.description}`.toLocaleLowerCase().includes(term),
     ),
   );
-}
-
-export function shortcutCommand(
-  event: Pick<
-    KeyboardEvent,
-    'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'repeat' | 'isComposing'
-  >,
-  nativeText: boolean,
-): CommandId | undefined {
-  if (
-    event.repeat ||
-    event.isComposing ||
-    event.altKey ||
-    !(event.ctrlKey || event.metaKey) ||
-    (event.ctrlKey && event.metaKey)
-  )
-    return;
-  return commands.find((entry) => {
-    const command: Definition = entry;
-    if (nativeText && command.nativeUndo) return false;
-    return command.shortcuts?.some((shortcut) => {
-      const keys = shortcut.toLowerCase().split('+');
-      return event.key.toLowerCase() === keys.at(-1) && event.shiftKey === keys.includes('shift');
-    });
-  })?.id;
 }

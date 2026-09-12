@@ -5,9 +5,18 @@ This describes implemented behavior, not the entire architecture roadmap.
 ## Text commands
 
 - A location is a document ID, source-bound text span ID, and UTF-16 offset.
-- Insert, delete, and replace operate inside one `w:t`. The desktop inspector
-  replaces the selected span's full text; the engine also accepts subranges.
-- Text inherits the existing run's properties because the run is not replaced.
+- Low-level text edits operate inside one `w:t`. The inspector replaces a selected
+  span; range commands and inline drafts compose edits across adjacent formatting runs.
+- Surviving text retains its source run properties. Insertions inherit the caret's
+  source run; at an ambiguous boundary the preceding nonempty run wins, falling
+  back to the following run at segment start. An explicit source position (including
+  a selected empty run) wins over that default.
+- Cross-run replacement inherits the first selected character's run, independently
+  of selection direction. Deletion retains that run as the subsequent typing format.
+  Empty source elements remain; arbitrary empty runs do not override caret ownership.
+- `previewRange` accepts source endpoints and an expected revision, validates the
+  complete range, and returns a source-bound caret. `previewPieces` validates a
+  draft's ordered source spans and revision before staging its changed pieces.
 - Empty results keep the existing text element. Existing empty text elements
   are editable; an empty paragraph without a text element cannot yet receive text.
 - Surrogate pairs cannot be split. Grapheme clusters are not treated as atomic
@@ -33,25 +42,30 @@ This describes implemented behavior, not the entire architecture roadmap.
 
 ## Inline drafts
 
-Typing or pasting at a selection within one editable span, double-clicking a span,
-or pressing Enter opens a native text field in that span's position. The field
-contains source text only, including an empty string for an empty text element.
-Empty spans have a dotted underline so they can be selected with codes hidden.
+Typing or pasting at a text selection, double-clicking text, or pressing Enter
+opens a native text field for its contiguous editable segment. The segment spans
+formatting boundaries but stops at structural, review, opaque, or protected content.
+Empty text elements are selectable; an empty paragraph without a text element is
+still unsupported. Double-clicking an empty element explicitly chooses its format.
 
-The draft is local to the UI until **Preview inline edit** and **Apply transaction**.
-Cancel or Escape discards it. Editing a draft dismisses its previous preview.
-Only one draft is active at a time; navigation, other editing commands, and Save As
-wait for apply or cancel. Workspace undo/redo clears a draft with a status message.
-The desktop checks the draft's source revision before staging it; stale drafts
-are refused. Closing the window with a draft offers to keep editing.
+The field displays plain text, while the draft retains one text piece per source
+span. Each input updates only the affected pieces. Unchanged text keeps its
+formatting through repeated insertions, deletions, replacements, and composition.
+Identical replacements leave the original formatting distribution intact.
 
-The field supports native text composition and plain-text paste. Backspace/Delete
-expand deletion to whole graphemes, including combining sequences and ZWJ emoji.
-Tabs, line breaks, object placeholders, and invalid XML text are refused. Deletion
-at the field edge stops there. Cross-span selections and protected text cannot
-start an edit. Caret/selection offsets survive code visibility changes and are
-restored into the projection after apply/cancel (clamped to the resulting span).
-Typing inside a draft does not add workspace undo entries; applying it adds one.
+The draft stays local until **Preview inline edit** and **Apply transaction**.
+Cancel or Escape restores the initial source selection and discards the draft.
+Editing dismisses its previous preview. Navigation and Save As wait for apply or
+cancel. Workspace undo/redo clears the draft; draft undo/redo restores both text
+and formatting pieces, including across code-visibility changes. Applying a draft
+adds one workspace transaction. Stale source revisions are refused.
+
+The field supports composition and plain-text paste. Backspace/Delete expand to
+whole graphemes across runs, including combining sequences and ZWJ emoji. Tabs,
+line breaks, object placeholders, and invalid XML text are refused. Deletion at a
+segment edge stops there. Apply restores the resulting source caret, including
+its typing-run ownership. No-edit code toggles preserve source selections.
+Closing the window with a draft offers to keep editing.
 
 ## Source identity
 
@@ -82,8 +96,33 @@ Ctrl+Enter previews the current text draft. Ctrl+Shift+Enter applies the display
 preview. Changing an inline or inspector draft dismisses its old preview. The
 palette does not bypass preview/commit, protected-content policy, or stale-revision
 checks. Ctrl+Z and redo shortcuts operate on workspace history in the projection;
-inside text fields they remain native text undo/redo. Escape closes the palette
+inside ordinary text fields they remain native text undo/redo; inline drafts have
+format-preserving local history. Escape closes the palette
 and returns focus without cancelling an underlying inline draft.
+
+Key chords live in `src/ui/keymap.ts`, independently of command definitions and
+actions. The active map drives matching, palette shortcut labels, tooltips, and
+accessibility hints. **Keybindings** in the sidebar accepts a JSON object mapping
+command IDs to chord arrays; `[]` unbinds a command and `{}` restores defaults.
+Overrides persist locally and apply immediately. Custom bindings replace conflicting
+defaults; ambiguous custom bindings and malformed configuration are refused.
+Workspace history bindings defer to text fields. Draft history and editor actions
+have their own focus scopes. IME composition bypasses shortcut matching.
+
+Example:
+
+```json
+{
+  "commands.open": ["Ctrl+k"],
+  "view.codes": [],
+  "text.deleteBackward": ["Alt+h"]
+}
+```
+
+Editor command IDs are `text.edit`, `text.cancel`, `text.deleteBackward`,
+`text.deleteForward`, `text.undo`, and `text.redo`. Chords support Ctrl/Mod
+(either Control or Meta), Meta, Alt, and Shift. These are simultaneous chords;
+sequential bindings such as Ctrl+K then Ctrl+C are not implemented.
 
 ## Protected content
 
@@ -157,7 +196,7 @@ preserved but never fetched. This is not full OPC/OOXML schema validation.
 
 ## Not implemented yet
 
-Paragraph split/join; arbitrary cross-run selection edits; direct formatting changes; list,
+Paragraph split/join; direct formatting changes; list,
 table, hyperlink, and section restructuring; full style/layout resolution and
 exotic numbering formats;
 comment or revision mutation; granular code-category filters;

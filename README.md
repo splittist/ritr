@@ -46,7 +46,8 @@ Select text in the document, edit it in the inspector, and choose **Preview text
 edit**, then **Apply transaction**. Clicking a code shows its source XML.
 For inline editing, type at a text selection or double-click a span, then choose
 **Preview inline edit** and **Apply transaction**. Escape or **Cancel inline edit**
-discards the draft. Inline edits stay within one span, including table-cell text.
+discards the draft. Inline edits cross adjacent formatting runs, including within table cells, while
+preserving the formatting of untouched text. Structure and protected text remain boundaries.
 Workspace replacement uses the same preview/commit flow. Undo reverses the entire
 transaction. Save As creates a new verified DOCX and refuses existing paths.
 
@@ -66,7 +67,12 @@ Unavailable commands remain visible with an explanation.
 | Ctrl+Shift+E | Toggle Reveal Codes |
 
 Inside text fields, undo/redo shortcuts retain native text-editing behavior.
-Use the toolbar or palette to undo a workspace transaction while a field has focus.
+Inline drafts have local undo/redo that preserves formatting. Use the toolbar or
+palette to undo a workspace transaction while a field has focus.
+
+Expand **Keybindings** in the sidebar to remap commands with JSON, for example
+`{"commands.open": ["Ctrl+k"]}`. Use `[]` to unbind a command or `{}` to restore
+defaults. Changes apply immediately and persist locally.
 
 ## Implemented
 
@@ -78,10 +84,10 @@ Use the toolbar or palette to undo a workspace transaction while a field has foc
   continuation handling, plus approximate paragraph and hanging indentation.
 - Table grids, horizontal/vertical merges, nested tables, approximate widths and
   borders, with source-bound table/cell inspection and the same safe text editing.
-- Insert/delete/replace within text spans, previewable workspace transactions,
+- Cross-run inline insert/delete/replace with preserved formatting, previewable workspace transactions,
   cross-run literal search/replacement, protected-match reporting, and session undo/redo.
 - Electron/React desktop with a CodeMirror Reveal Codes projection and inspector.
-- Shared GUI command registry, searchable palette, contextual availability, and shortcuts.
+- Shared GUI command registry, searchable palette, contextual availability, and remappable shortcuts.
 - Diagnostic CLI, safe Save As, and staged export to a new batch directory.
 - Synthetic `docxfix` fixtures, preservation/command/save tests, and desktop
   end-to-end verification.

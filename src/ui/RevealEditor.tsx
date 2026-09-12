@@ -1,9 +1,18 @@
+import { editorCommand } from './keymap';
+import { type TextPosition } from '../engine/text-range';
 import { useEffect, useRef } from 'react';
 import { EditorState, RangeSetBuilder } from '@codemirror/state';
 import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view';
 import type { CodeToken, Story, Token } from '../engine/document';
 import { paragraphGeometry, paragraphLineStyle } from './paragraph-layout';
-import { deletionRange, validInlineText, type InlineEditing } from './inline-edit';
+import {
+  deletionRange,
+  editDraft,
+  inputDraft,
+  selectDraft,
+  validInlineText,
+  type InlineEditing,
+} from './inline-edit';
 
 class InlineWidget extends WidgetType {
   constructor(readonly editing: () => InlineEditing) {
@@ -11,38 +20,74 @@ class InlineWidget extends WidgetType {
   }
   toDOM(): HTMLElement {
     const input = document.createElement('textarea');
-    const draft = this.editing().draft!;
+    let draft = this.editing().draft!;
+    const { past, future } = this.editing().history;
     input.className = 'inline-text';
     input.setAttribute('aria-label', 'Inline text');
     input.value = draft.text;
     input.rows = 1;
     input.spellcheck = false;
-    let accepted = draft.text;
     let composing = false;
+    let selection: { from: number; to: number } | undefined;
     const resize = () => {
       input.style.width = `${Math.max(12, Math.min(70, input.value.length + 2))}ch`;
       input.style.height = 'auto';
       input.style.height = `${Math.max(28, input.scrollHeight)}px`;
     };
+    const render = () => {
+      input.value = draft.text;
+      input.setSelectionRange(draft.anchor, draft.head);
+      resize();
+    };
+    const accept = (next: typeof draft, record = true) => {
+      if (record && next.pieces.some((p, i) => p.text !== draft.pieces[i]?.text)) {
+        past.push(draft);
+        future.length = 0;
+      }
+      draft = next;
+      this.editing().change(draft);
+    };
+    const history = (redo: boolean) => {
+      const source = redo ? future : past,
+        target = redo ? past : future;
+      const next = source.pop();
+      if (next) {
+        target.push(draft);
+        accept(next, false);
+        render();
+      }
+    };
     const update = () => {
       if (this.editing().busy) {
-        input.value = accepted;
+        render();
         return;
       }
-      if (!validInlineText(input.value)) {
-        input.value = accepted;
-        this.editing().message('Inline edits cannot contain tabs, line breaks, or invalid text.');
-      } else accepted = input.value;
-      this.editing().change(input.value, input.selectionStart, input.selectionEnd);
+      try {
+        accept(inputDraft(draft, input.value, input.selectionStart, input.selectionEnd, selection));
+        selection = undefined;
+      } catch (e) {
+        render();
+        this.editing().message(String(e).replace(/^Error: /, ''));
+      }
       resize();
     };
     input.oninput = () => {
       if (!composing) update();
     };
     input.onbeforeinput = (event) => {
-      if (this.editing().busy) event.preventDefault();
+      if (this.editing().busy) {
+        event.preventDefault();
+        return;
+      }
+      if (event.inputType === 'historyUndo' || event.inputType === 'historyRedo') {
+        event.preventDefault();
+        history(event.inputType === 'historyRedo');
+        return;
+      }
+      if (!composing) selection = { from: input.selectionStart, to: input.selectionEnd };
     };
     input.addEventListener('compositionstart', () => {
+      selection = { from: input.selectionStart, to: input.selectionEnd };
       composing = true;
     });
     input.addEventListener('compositionend', () => {
@@ -50,7 +95,8 @@ class InlineWidget extends WidgetType {
       update();
     });
     input.onselect = () => {
-      if (!composing) this.editing().change(input.value, input.selectionStart, input.selectionEnd);
+      if (!composing && input.value === draft.text)
+        accept(selectDraft(draft, input.selectionStart, input.selectionEnd), false);
     };
     input.onkeydown = (event) => {
       if (this.editing().busy) {
@@ -58,37 +104,57 @@ class InlineWidget extends WidgetType {
         return;
       }
       if (event.isComposing || composing) return;
-      if (event.key === 'Escape') {
+      const command = editorCommand(event, this.editing().keymap, true);
+      if (command === 'text.undo' || command === 'text.redo') {
+        event.preventDefault();
+        history(command === 'text.redo');
+        return;
+      }
+      if (
+        !command &&
+        ['Backspace', 'Delete'].includes(event.key) &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey
+      ) {
+        event.preventDefault();
+        return;
+      }
+      if (command === 'text.cancel') {
         event.preventDefault();
         this.editing().cancel();
       }
-      if (event.key === 'Enter') {
+      if (command === 'text.edit') {
         event.preventDefault();
         this.editing().message(
-          'Paragraph split is not supported yet. Preview and apply this span edit.',
+          'Paragraph split is not supported yet. Preview and apply this text edit.',
         );
       }
-      if (event.key === 'Backspace' || event.key === 'Delete') {
+      if (command === 'text.deleteBackward' || command === 'text.deleteForward') {
         event.preventDefault();
         const range = deletionRange(
           input.value,
           input.selectionStart,
           input.selectionEnd,
-          event.key === 'Backspace',
+          command === 'text.deleteBackward',
         );
         if (range.from === range.to) {
-          this.editing().message('This edit stops at the text span boundary.');
+          this.editing().message('This edit stops at a structural boundary.');
           return;
         }
-        input.setRangeText('', range.from, range.to, 'start');
-        update();
+        try {
+          accept(editDraft(draft, range.from, range.to, ''));
+          render();
+        } catch (e) {
+          this.editing().message(String(e));
+        }
       }
     };
     input.onpaste = (event) => {
       const text = event.clipboardData?.getData('text/plain');
       if (text !== undefined && !validInlineText(text)) {
         event.preventDefault();
-        this.editing().message('Paste plain text without tabs or line breaks into this span.');
+        this.editing().message('Paste plain text without tabs or line breaks.');
       }
     };
     requestAnimationFrame(() => {
@@ -141,7 +207,7 @@ class CodeWidget extends WidgetType {
   }
 }
 
-/** The projection stays read-only; an inline draft replaces one source span visually. */
+/** The projection stays read-only; a draft replaces one contiguous editable segment visually. */
 export function RevealEditor({
   story,
   codes,
@@ -198,6 +264,8 @@ export function RevealEditor({
       decorations.add(from, text.length, decoration);
       atomic.add(from, text.length, decoration);
     };
+    const draftIds = new Set(editing.current.draft?.pieces.map((p) => p.spanId));
+    let draftStarted = false;
     let paragraph: CodeToken['paragraph'];
     for (const token of story.tokens) {
       if (token.kind === 'code' && token.role === 'list-label') continue;
@@ -217,7 +285,16 @@ export function RevealEditor({
         if (marker?.kind === 'code') addWidget(marker);
       }
       const from = text.length;
+      if (draftStarted && token.kind === 'code' && token.category === 'format') continue;
+      if (token.kind === 'code' && token.category !== 'format') draftStarted = false;
+      if (
+        token.kind === 'text' &&
+        draftIds.has(token.span.id) &&
+        token.span.id !== editing.current.draft?.spanId
+      )
+        continue;
       if (token.kind === 'text') {
+        if (token.span.id === editing.current.draft?.spanId) draftStarted = true;
         // Empty source spans remain selectable without inserting literal document text.
         text += token.span.text || '\u200b';
         decorations.add(
@@ -257,6 +334,32 @@ export function RevealEditor({
     }
     const ranges = decorations.finish();
     const atomicRanges = atomic.finish();
+    const position = (
+      offset: number,
+      side: 'left' | 'right',
+      preferred?: TextPosition,
+    ): TextPosition | undefined => {
+      const candidates = locations.filter(
+        (l) => offset >= l.from && offset <= l.to && l.token.kind === 'text',
+      );
+      const location =
+        candidates.find(
+          (l) =>
+            l.token.kind === 'text' &&
+            l.token.span.id === preferred?.spanId &&
+            Math.min(l.token.span.text.length, offset - l.from) === preferred.offset,
+        ) ??
+        (side === 'left'
+          ? candidates.find((l) => offset > l.from)
+          : candidates.find((l) => offset < l.to)) ??
+        candidates[0];
+      if (location?.token.kind !== 'text') return;
+      return {
+        spanId: location.token.span.id,
+        offset: Math.min(location.token.span.text.length, offset - location.from),
+        affinity: side,
+      };
+    };
     const selectedLocation = (editor: EditorView) => {
       const { from, to } = editor.state.selection.main;
       return (
@@ -266,54 +369,56 @@ export function RevealEditor({
     };
     const begin = (editor: EditorView, insert?: string, backward?: boolean) => {
       const { from, to } = editor.state.selection.main;
-      const location = selectedLocation(editor);
-      if (!location || location.token.kind !== 'text') {
+      const anchor = position(
+        from,
+        from === to ? 'left' : 'right',
+        from === to ? activeCaret : undefined,
+      );
+      const head = from === to ? anchor : position(to, 'left');
+      if (!anchor || !head) {
         editing.current.message(
-          'Select text within one span to edit; codes and boundaries are preserved.',
+          'Select text within one text segment; structural boundaries are preserved.',
         );
         return;
       }
-      const span = location.token.span;
-      if (!span.editable) {
-        editing.current.message(span.reason ?? 'This text is protected.');
-        return;
-      }
-      let anchor = Math.min(span.text.length, from - location.from);
-      let head = Math.min(span.text.length, to - location.from);
-      if (backward !== undefined) {
-        const range = deletionRange(span.text, anchor, head, backward);
-        if (range.from === range.to) {
-          editing.current.message('This edit stops at the text span boundary.');
-          return;
-        }
-        anchor = range.from;
-        head = range.to;
-      }
-      editing.current.start(span.id, anchor, head, insert);
+      const forward = editor.state.selection.main.anchor <= editor.state.selection.main.head;
+      editing.current.start(forward ? anchor : head, forward ? head : anchor, insert, backward);
     };
     const restore =
       editing.current.restore !== lastRestore.current ? editing.current.restore : caret.current;
     lastRestore.current = editing.current.restore;
-    const restored = locations.find(
-      (l) => l.token.kind === 'text' && l.token.span.id === restore?.spanId,
-    );
-    const restoredLength = restored?.token.kind === 'text' ? restored.token.span.text.length : 0;
+    const projectionOffset = (p?: TextPosition) => {
+      const location = locations.find(
+        (l) => l.token.kind === 'text' && l.token.span.id === p?.spanId,
+      );
+      return location?.token.kind === 'text' && p
+        ? location.from + Math.min(p.offset, location.token.span.text.length)
+        : undefined;
+    };
+    const restoredAnchor = projectionOffset(restore?.anchor),
+      restoredHead = projectionOffset(restore?.head);
+    const restored = restoredAnchor !== undefined && restoredHead !== undefined;
+    let activeCaret = restored && restoredAnchor === restoredHead ? restore?.anchor : undefined;
     const view = new EditorView({
       parent: host.current!,
       state: EditorState.create({
         doc: text,
-        selection:
-          restored && restore
-            ? {
-                anchor: restored.from + Math.min(restore.anchor, restoredLength),
-                head: restored.from + Math.min(restore.head, restoredLength),
-              }
-            : undefined,
+        selection: restored ? { anchor: restoredAnchor!, head: restoredHead! } : undefined,
         extensions: [
           EditorState.readOnly.of(true),
           EditorView.lineWrapping,
           EditorView.updateListener.of((update) => {
-            if (update.selectionSet) select.current(selectedLocation(update.view)?.token);
+            if (update.selectionSet) {
+              select.current(selectedLocation(update.view)?.token);
+              const { from, to } = update.state.selection.main;
+              const a = position(
+                from,
+                from === to ? 'left' : 'right',
+                from === to ? activeCaret : undefined,
+              );
+              activeCaret = from === to ? a : undefined;
+              editing.current.selectRange(a, from === to ? a : position(to, 'left'));
+            }
           }),
           EditorView.decorations.of(ranges),
           EditorView.decorations.of(Decoration.set(lines, true)),
@@ -330,22 +435,43 @@ export function RevealEditor({
                   l.token.kind === 'text' &&
                   l.token.span.id === target?.getAttribute('data-span-id'),
               );
-              if (empty) editor.dispatch({ selection: { anchor: empty.from, head: empty.from } });
-              begin(editor);
+              if (empty?.token.kind === 'text') {
+                const point: TextPosition = {
+                  spanId: empty.token.span.id,
+                  offset: 0,
+                  affinity: 'right',
+                };
+                editing.current.start(point, point);
+              } else begin(editor);
               return true;
             },
             mouseup: (_event, editor) => {
               select.current(selectedLocation(editor)?.token);
+              const { from, to } = editor.state.selection.main;
+              const a = position(
+                from,
+                from === to ? 'left' : 'right',
+                from === to ? activeCaret : undefined,
+              );
+              activeCaret = from === to ? a : undefined;
+              editing.current.selectRange(a, from === to ? a : position(to, 'left'));
               return false;
             },
             keydown: (event, editor) => {
-              if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return false;
-              const deleting = event.key === 'Backspace' || event.key === 'Delete';
-              if (event.key !== 'Enter' && event.key.length !== 1 && !deleting) return false;
+              if (event.isComposing) return false;
+              const command = editorCommand(event, editing.current.keymap);
+              const deleting =
+                command === 'text.deleteBackward' || command === 'text.deleteForward';
+              if (
+                !deleting &&
+                command !== 'text.edit' &&
+                (event.ctrlKey || event.metaKey || event.altKey || event.key.length !== 1)
+              )
+                return false;
               begin(
                 editor,
-                deleting ? '' : event.key === 'Enter' ? undefined : event.key,
-                deleting ? event.key === 'Backspace' : undefined,
+                deleting ? '' : command === 'text.edit' ? undefined : event.key,
+                deleting ? command === 'text.deleteBackward' : undefined,
               );
               event.preventDefault();
               return true;
@@ -355,10 +481,7 @@ export function RevealEditor({
               if (value !== undefined) {
                 event.preventDefault();
                 if (validInlineText(value)) begin(editor, value);
-                else
-                  editing.current.message(
-                    'Paste plain text without tabs or line breaks into one span.',
-                  );
+                else editing.current.message('Paste plain text without tabs or line breaks.');
               }
               return true;
             },
@@ -368,16 +491,10 @@ export function RevealEditor({
     });
     if (restored && !editing.current.draft) view.focus();
     return () => {
-      const { anchor, head, from, to } = view.state.selection.main;
-      const location = locations.find((l) => from >= l.from && to <= l.to);
-      caret.current =
-        location?.token.kind === 'text'
-          ? {
-              spanId: location.token.span.id,
-              anchor: anchor - location.from,
-              head: head - location.from,
-            }
-          : undefined;
+      const { anchor, head } = view.state.selection.main;
+      const a = position(anchor, 'left', anchor === head ? activeCaret : undefined),
+        h = anchor === head ? a : position(head, 'left');
+      caret.current = a && h ? { anchor: a, head: h } : undefined;
       view.destroy();
     };
   }, [story, codes, inline.draft?.spanId, inline.restore]);

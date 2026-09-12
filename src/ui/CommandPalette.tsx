@@ -1,3 +1,4 @@
+import { commandShortcuts, type KeyBinding } from './keymap';
 import { useEffect, useRef, useState } from 'react';
 import { commandReason, filterCommands, type CommandContext, type CommandId } from './commands';
 
@@ -26,11 +27,13 @@ export function captureCommandFocus(): () => void {
 }
 
 export function CommandPalette({
+  keymap,
   context,
   onClose,
   onExecute,
   restoreFocus,
 }: {
+  keymap: readonly KeyBinding[];
   context: CommandContext;
   onClose: () => void;
   onExecute: (id: CommandId) => void;
@@ -131,7 +134,9 @@ export function CommandPalette({
             >
               <div>
                 <strong>{command.label}</strong>
-                {'shortcuts' in command && <kbd>{command.shortcuts[0]}</kbd>}
+                {commandShortcuts(command.id, keymap).length > 0 && (
+                  <kbd>{commandShortcuts(command.id, keymap)[0]}</kbd>
+                )}
               </div>
               <small>{reason ?? command.description}</small>
             </div>

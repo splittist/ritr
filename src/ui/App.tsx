@@ -1,16 +1,23 @@
+import { resolveTextRange, positionAt, type TextPosition } from '../engine/text-range';
+import { commandShortcuts, shortcutCommand, resolveKeymap } from './keymap';
 import { useEffect, useRef, useState } from 'react';
 import type { DesktopApi, Snapshot } from '../desktop/protocol';
 import type { ChangePreview, SearchMatch } from '../engine/workspace';
 import type { Token } from '../engine/document';
 import type { PartDifference } from '../package/docx';
 import { StoryView } from './StoryView';
-import { validInlineText, type InlineDraft, type InlineEditing } from './inline-edit';
+import {
+  editDraft,
+  deletionRange,
+  validInlineText,
+  type InlineDraft,
+  type InlineEditing,
+} from './inline-edit';
 import { CommandPalette, captureCommandFocus } from './CommandPalette';
 import {
   commands,
   commandReason,
   invokeCommand,
-  shortcutCommand,
   type CommandActions,
   type CommandContext,
   type CommandId,
@@ -24,6 +31,18 @@ declare global {
 const empty: Snapshot = { documents: [], canUndo: false, canRedo: false };
 
 export function App() {
+  const [keymap, setKeymap] = useState(() => {
+    try {
+      return resolveKeymap(JSON.parse(localStorage.getItem('ritr.keymap') ?? '{}'));
+    } catch {
+      return resolveKeymap();
+    }
+  });
+  const [keymapText, setKeymapText] = useState(() => localStorage.getItem('ritr.keymap') ?? '{}');
+  const [rangeSelection, setRangeSelection] = useState<{
+    anchor: TextPosition;
+    head: TextPosition;
+  }>();
   const [state, setState] = useState(empty);
   const [documentId, setDocumentId] = useState('');
   const [storyId, setStoryId] = useState('');
@@ -42,6 +61,10 @@ export function App() {
   const [inlineDraft, setInlineDraft] = useState<InlineDraft & { revision: number }>();
   const [restore, setRestore] = useState<InlineEditing['restore']>();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const draftHistory = useRef<{ past: InlineDraft[]; future: InlineDraft[] }>({
+    past: [],
+    future: [],
+  });
   const paletteFocus = useRef<() => void>(() => {});
   const running = useRef(false);
   const searchInput = useRef<HTMLInputElement>(null);
@@ -70,48 +93,71 @@ export function App() {
     setPreview(undefined);
     setMatches(undefined);
     setSelected(undefined);
+    setRangeSelection(undefined);
     setReport(undefined);
   }
   function select(token?: Token) {
+    setRangeSelection(undefined);
     setSelected(token);
     setDraft(token?.kind === 'text' ? token.span.text : '');
   }
   const inline: InlineEditing = {
+    history: draftHistory.current,
     busy,
     draft: inlineDraft,
     restore,
     message: setError,
-    start: (spanId, anchor, head, insert) => {
-      if (busy) return;
+    keymap,
+    selectRange: (anchor, head) => setRangeSelection(anchor && head ? { anchor, head } : undefined),
+    start: (initialAnchor, initialHead, insert, backward) => {
+      if (busy || !document || !story) return;
       if (inlineDraft) {
-        setError('Apply or cancel the current inline draft before editing another span.');
+        setError('Apply or cancel the current inline draft first.');
         return;
       }
-      const token = story?.tokens.find((t) => t.kind === 'text' && t.span.id === spanId);
-      if (!document || token?.kind !== 'text' || !token.span.editable) return;
-      const text =
-        insert === undefined
-          ? token.span.text
-          : token.span.text.slice(0, anchor) + insert + token.span.text.slice(head);
-      if (!validInlineText(text)) {
-        setError('This text cannot be edited inline.');
-        return;
+      try {
+        const range = resolveTextRange(story, initialAnchor, initialHead);
+        if (range.segment.spans.some((s) => !s.editable))
+          throw new Error('This text segment contains protected text.');
+        let value: InlineDraft = {
+          spanId: range.pieces[0]!.spanId,
+          pieces: range.pieces,
+          original: range.pieces,
+          text: range.segment.text,
+          anchor: range.from,
+          head: range.to,
+          typing: initialAnchor,
+          initialAnchor,
+          initialHead,
+        };
+        const originalDraft = value;
+        if (backward !== undefined) {
+          const deletion = deletionRange(value.text, range.from, range.to, backward);
+          if (deletion.from === deletion.to)
+            throw new Error('This edit stops at a structural boundary.');
+          value = editDraft(value, deletion.from, deletion.to, '');
+        } else if (insert !== undefined) value = editDraft(value, range.from, range.to, insert);
+        if (!validInlineText(value.text)) throw new Error('This text cannot be edited inline.');
+        setPreview(undefined);
+        setRestore(undefined);
+        setError('');
+        draftHistory.current.past.length = 0;
+        draftHistory.current.future.length = 0;
+        if (value.pieces.some((p, i) => p.text !== originalDraft.pieces[i]?.text))
+          draftHistory.current.past.push(originalDraft);
+        setInlineDraft({ ...value, revision: document.revision });
+      } catch (e) {
+        setError(String(e).replace(/^Error: /, ''));
       }
-      setPreview(undefined);
-      setRestore(undefined);
-      setError('');
-      setInlineDraft({
-        spanId,
-        text,
-        revision: document.revision,
-        anchor: insert === undefined ? anchor : anchor + insert.length,
-        head: insert === undefined ? head : anchor + insert.length,
-      });
     },
-    change: (text, anchor, head) => {
+    change: (value) => {
       if (inlineDraft && !busy) {
-        if (text !== inlineDraft.text) setPreview(undefined);
-        setInlineDraft({ ...inlineDraft, text, anchor, head });
+        if (
+          value.text !== inlineDraft.text ||
+          value.pieces.some((p, i) => p.text !== inlineDraft.pieces[i]?.text)
+        )
+          setPreview(undefined);
+        setInlineDraft({ ...value, revision: inlineDraft.revision });
       }
     },
     cancel: () => execute('edit.cancelInline'),
@@ -131,12 +177,23 @@ export function App() {
         setState(await api.snapshot());
       });
   }, []);
+  const rangeReason = (() => {
+    if (!rangeSelection || !story) return undefined;
+    try {
+      resolveTextRange(story, rangeSelection.anchor, rangeSelection.head);
+      return '';
+    } catch (e) {
+      return String(e).replace(/^Error: /, '');
+    }
+  })();
   const selectionReason =
-    selected?.kind !== 'text'
-      ? 'Select an editable text span.'
-      : !selected.span.editable
-        ? (selected.span.reason ?? 'This text is protected.')
-        : undefined;
+    rangeReason !== undefined
+      ? rangeReason || undefined
+      : selected?.kind !== 'text'
+        ? 'Select an editable text span.'
+        : !selected.span.editable
+          ? (selected.span.reason ?? 'This text is protected.')
+          : undefined;
   const inlineToken = story?.tokens.find(
     (t) => t.kind === 'text' && t.span.id === inlineDraft?.spanId,
   );
@@ -151,7 +208,7 @@ export function App() {
     editReason: inlineDraft
       ? inlineToken?.kind !== 'text'
         ? 'The draft span is no longer available.'
-        : inlineDraft.text === inlineToken.span.text
+        : inlineDraft.pieces.every((p, i) => p.text === inlineDraft.original[i]?.text)
           ? 'The draft has no changes.'
           : undefined
       : (selectionReason ??
@@ -180,17 +237,20 @@ export function App() {
     'history.undo': async () => refresh(await api!.undo()),
     'history.redo': async () => refresh(await api!.redo()),
     'edit.inline': () => {
-      if (selected?.kind === 'text') inline.start(selected.span.id, 0, selected.span.text.length);
+      if (rangeSelection) inline.start(rangeSelection.anchor, rangeSelection.head);
+      else if (selected?.kind === 'text')
+        inline.start(
+          { spanId: selected.span.id, offset: 0 },
+          { spanId: selected.span.id, offset: selected.span.text.length },
+        );
     },
     'edit.preview': async () => {
       if (inlineDraft && inlineToken?.kind === 'text') {
         setPreview(
-          await api!.previewEdit({
+          await api!.previewPieces({
             documentId: document!.id,
-            spanId: inlineDraft.spanId,
-            from: 0,
-            to: inlineToken.span.text.length,
-            text: inlineDraft.text,
+            storyId: story!.id,
+            pieces: inlineDraft.pieces,
             expectedRevision: inlineDraft.revision,
           }),
         );
@@ -210,9 +270,8 @@ export function App() {
     'edit.cancelInline': () => {
       if (inlineDraft)
         setRestore({
-          spanId: inlineDraft.spanId,
-          anchor: inlineDraft.anchor,
-          head: inlineDraft.head,
+          anchor: inlineDraft.initialAnchor,
+          head: inlineDraft.initialHead,
         });
       setInlineDraft(undefined);
       setPreview(undefined);
@@ -231,9 +290,13 @@ export function App() {
       refresh(await api!.commit(preview!.id));
       if (inlineDraft)
         setRestore({
-          spanId: inlineDraft.spanId,
-          anchor: inlineDraft.anchor,
-          head: inlineDraft.head,
+          anchor: positionAt(
+            inlineDraft.pieces,
+            inlineDraft.anchor,
+            'left',
+            inlineDraft.typing.spanId,
+          ),
+          head: positionAt(inlineDraft.pieces, inlineDraft.head, 'left', inlineDraft.typing.spanId),
         });
       setMessage('Transaction applied. Undo reverses the complete change.');
     },
@@ -268,11 +331,11 @@ export function App() {
       disabled: !!reason,
       title:
         reason ??
-        `${command.description}${'shortcuts' in command ? ` (${command.shortcuts.join(' / ')})` : ''}`,
+        `${command.description}${commandShortcuts(id, keymap).length ? ` (${commandShortcuts(id, keymap).join(' / ')})` : ''}`,
       'aria-keyshortcuts':
-        'shortcuts' in command
-          ? command.shortcuts.map((key) => key.replace('Ctrl', 'Control')).join(' ')
-          : undefined,
+        commandShortcuts(id, keymap)
+          .map((key) => key.replace('Ctrl', 'Control'))
+          .join(' ') || undefined,
       onClick: () => execute(id),
     };
   }
@@ -282,7 +345,7 @@ export function App() {
       const nativeText =
         !!target?.closest('input, textarea') ||
         (!!target?.isContentEditable && !target.closest('.cm-content'));
-      const id = shortcutCommand(event, nativeText);
+      const id = shortcutCommand(event, nativeText, keymap);
       if (!id) return;
       event.preventDefault();
       event.stopPropagation();
@@ -290,7 +353,7 @@ export function App() {
     };
     window.addEventListener('keydown', keydown, true);
     return () => window.removeEventListener('keydown', keydown, true);
-  }, []);
+  }, [keymap]);
   return (
     <div className="app">
       <header className="topbar">
@@ -330,6 +393,7 @@ export function App() {
                   setDocumentId(d.id);
                   setRestore(undefined);
                   setStoryId('');
+                  setRangeSelection(undefined);
                   setSelected(undefined);
                   setReport(undefined);
                 }}
@@ -354,6 +418,7 @@ export function App() {
                     className={`story-link ${story?.id === s.id ? 'active' : ''}`}
                     onClick={() => {
                       setStoryId(s.id);
+                      setRangeSelection(undefined);
                       setRestore(undefined);
                       setSelected(undefined);
                     }}
@@ -365,6 +430,31 @@ export function App() {
               </nav>
             </>
           )}
+          <details className="keymap-settings">
+            <summary>Keybindings</summary>
+            <p>Map command IDs to key chords. An empty array removes a binding.</p>
+            <textarea
+              aria-label="Keybindings JSON"
+              value={keymapText}
+              onChange={(e) => setKeymapText(e.target.value)}
+            />
+            <button
+              onClick={() => {
+                try {
+                  const overrides = JSON.parse(keymapText);
+                  const next = resolveKeymap(overrides);
+                  localStorage.setItem('ritr.keymap', JSON.stringify(overrides));
+                  setKeymap(next);
+                  setError('');
+                  setMessage('Keybindings updated.');
+                } catch (e) {
+                  setError(String(e).replace(/^Error: /, ''));
+                }
+              }}
+            >
+              Apply keybindings
+            </button>
+          </details>
           <div className="sidebar-foot">
             Original files stay untouched.
             <br />
@@ -400,7 +490,7 @@ export function App() {
               </div>
               {inlineDraft && (
                 <div className="inline-toolbar" aria-label="Inline draft">
-                  <span>Inline draft · one text span · not yet applied</span>
+                  <span>Inline draft · formatting preserved · not yet applied</span>
                   <button {...commandProps('edit.preview')}>Preview inline edit</button>
                   <button {...commandProps('edit.cancelInline')} />
                 </div>
@@ -660,6 +750,7 @@ export function App() {
       </footer>
       {paletteOpen && (
         <CommandPalette
+          keymap={keymap}
           context={context}
           onClose={() => setPaletteOpen(false)}
           onExecute={execute}

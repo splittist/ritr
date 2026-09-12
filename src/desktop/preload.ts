@@ -4,6 +4,7 @@ import type { DesktopApi } from './protocol';
 const api: DesktopApi = {
   snapshot: () => ipcRenderer.invoke('ritr:snapshot'),
   open: () => ipcRenderer.invoke('ritr:open'),
+  previewPieces: (edit) => ipcRenderer.invoke('ritr:previewPieces', edit),
   previewEdit: (edit) => ipcRenderer.invoke('ritr:previewEdit', edit),
   previewReplace: (query, replacement, caseSensitive) =>
     ipcRenderer.invoke('ritr:previewReplace', query, replacement, caseSensitive),

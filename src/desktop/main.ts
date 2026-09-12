@@ -103,6 +103,17 @@ app
       for (const { file, bytes } of files) workspace.open(basename(file), bytes);
       return snapshot();
     });
+    handle('previewPieces', (edit: Parameters<Workspace['previewPieces']>[0]) =>
+      workspace.previewPieces({
+        ...edit,
+        documentId: string(edit.documentId),
+        storyId: string(edit.storyId),
+        pieces: edit.pieces.map((piece) => ({
+          spanId: string(piece.spanId),
+          text: string(piece.text),
+        })),
+      }),
+    );
     handle('previewEdit', (value: TextEdit & { expectedRevision?: number }) => {
       if (
         !value ||

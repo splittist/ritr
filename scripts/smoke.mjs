@@ -47,6 +47,45 @@ try {
   await page.getByRole('heading', { name: 'plain.docx', exact: true }).waitFor();
   assert.equal(await page.locator('.document-link').count(), 6);
   assert.ok((await page.locator('.code-token').count()) > 0);
+  await page.locator('.keymap-settings summary').click();
+  const keySettings = page.getByRole('textbox', { name: 'Keybindings JSON' });
+  await keySettings.fill(
+    JSON.stringify({
+      'commands.open': ['Ctrl+k'],
+      'view.codes': [],
+      'text.deleteBackward': ['Alt+h'],
+    }),
+  );
+  await page.getByRole('button', { name: 'Apply keybindings' }).click();
+  assert.ok(
+    (
+      await page.getByRole('button', { name: 'Commands', exact: true }).getAttribute('title')
+    ).includes('Ctrl+k'),
+  );
+  await page.keyboard.press('Control+k');
+  await page.getByRole('dialog', { name: 'Commands', exact: true }).waitFor();
+  await page.getByRole('combobox', { name: 'Search commands' }).press('Escape');
+  await page.keyboard.press('Control+Shift+P');
+  assert.equal(await page.getByRole('dialog', { name: 'Commands', exact: true }).count(), 0);
+  await page.reload();
+  await page.getByRole('heading', { name: 'plain.docx', exact: true }).waitFor();
+  await page.keyboard.press('Control+k');
+  await page.getByRole('dialog', { name: 'Commands', exact: true }).waitFor();
+  await page.getByRole('combobox', { name: 'Search commands' }).press('Escape');
+  await page.locator('.editable-span').first().dblclick();
+  const remappedDraft = page.getByRole('textbox', { name: 'Inline text', exact: true });
+  await remappedDraft.fill('abc');
+  await remappedDraft.press('End');
+  await remappedDraft.press('Backspace');
+  assert.equal(await remappedDraft.inputValue(), 'abc');
+  await remappedDraft.press('Alt+h');
+  assert.equal(await remappedDraft.inputValue(), 'ab');
+  await remappedDraft.press('Escape');
+  await page.locator('.keymap-settings summary').click();
+  await keySettings.fill('{}');
+  await page.getByRole('button', { name: 'Apply keybindings' }).click();
+  await page.screenshot({ path: join(output, 'keybindings.png'), fullPage: true });
+  await page.locator('.keymap-settings summary').click();
   // Registry availability, modal focus, and keyboard navigation use the same actions as buttons.
   const searchCommands = page.getByRole('combobox', { name: 'Search commands' });
   const palette = page.getByRole('dialog', { name: 'Commands', exact: true });
@@ -227,6 +266,69 @@ try {
   );
   assert.ok((await readFile(tablePath)).length > 0);
   await page.getByRole('button', { name: /cross-run.docx/ }).click();
+  // Arbitrary selections cross formatting runs in either projection.
+  const crossInput = page.getByRole('textbox', { name: 'Inline text', exact: true });
+  for (const codes of [false, true]) {
+    await page.getByLabel('Reveal codes', { exact: true }).setChecked(codes);
+    const first = page.locator('.editable-span').filter({ hasText: /^Cross-run $/ });
+    await first.click();
+    await first.evaluate((span) => {
+      const next = [...document.querySelectorAll('.editable-span')].find(
+        (s) => s.textContent === 'needle',
+      );
+      const range = document.createRange();
+      range.setStart(span.firstChild, 7);
+      range.setEnd(next.firstChild, 3);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      document.dispatchEvent(new Event('selectionchange'));
+    });
+    await page.waitForTimeout(100);
+    await page.keyboard.press('X');
+    await crossInput.waitFor();
+    assert.equal(await crossInput.inputValue(), 'Cross-rXdle');
+    await crossInput.press('Control+z');
+    assert.equal(await crossInput.inputValue(), 'Cross-run needle');
+    await crossInput.press('Control+y');
+    assert.equal(await crossInput.inputValue(), 'Cross-rXdle');
+    await crossInput.press('End');
+    await crossInput.pressSequentially('!');
+    await crossInput.press('Control+z');
+    assert.equal(await crossInput.inputValue(), 'Cross-rXdle');
+    await crossInput.press('Control+y');
+    assert.equal(await crossInput.inputValue(), 'Cross-rXdle!');
+    await page.getByLabel('Reveal codes', { exact: true }).setChecked(!codes);
+    await crossInput.press('Control+z');
+    assert.equal(await crossInput.inputValue(), 'Cross-rXdle');
+    await crossInput.press('Control+y');
+    await crossInput.press('Control+Enter');
+    await page.getByLabel('Change preview').waitFor();
+    assert.deepEqual(await page.locator('.diff ins').allTextContents(), ['Cross-rX', 'dle!']);
+    await page.getByRole('button', { name: 'Apply transaction' }).click();
+    await page
+      .locator('.editable-span')
+      .filter({ hasText: /^dle!$/ })
+      .waitFor();
+    const crossSave = join(output, `cross-inline-${codes}.docx`);
+    await app.evaluate(({ dialog }, path) => {
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath: path });
+    }, crossSave);
+    await page.getByRole('button', { name: 'Save As…' }).click();
+    await page.waitForFunction(() =>
+      document.querySelector('footer')?.textContent.includes('Saved and verified'),
+    );
+    const parts = unzipSync(await readFile(crossSave));
+    const xml = strFromU8(parts['word/document.xml']);
+    assert.match(xml, /<w:rPr><w:b\/><\/w:rPr><w:t[^>]*>dle!<\/w:t>/);
+    for (const [name, bytes] of Object.entries(crossRunParts))
+      if (name !== 'word/document.xml') assert.deepEqual(parts[name], bytes);
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await page
+      .locator('.editable-span')
+      .filter({ hasText: /^needle$/ })
+      .waitFor();
+  }
   await page.getByLabel('Find text', { exact: true }).fill('Cross-run needle');
   await page.getByRole('button', { name: 'Find', exact: true }).click();
   await page.locator('.matches').getByText('1 matches · 0 protected').waitFor();
@@ -283,11 +385,11 @@ try {
     .filter({ hasText: /^\u200b$/ })
     .first();
   await emptySpan.dblclick();
-  assert.equal(await inlineInput.inputValue(), '');
+  assert.equal(await inlineInput.inputValue(), 'Joined text');
   await inlineInput.pressSequentially('Inline ');
   await inlineInput.evaluate((input) => {
     input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
-    input.value = 'Inline café';
+    input.value = 'Joined textInline café';
     input.dispatchEvent(
       new InputEvent('input', {
         bubbles: true,
@@ -306,7 +408,7 @@ try {
     if (!event.defaultPrevented) throw new Error('Multiline paste was not refused');
   });
   await inlineInput.press('Enter');
-  assert.equal(await inlineInput.inputValue(), 'Inline café');
+  assert.equal(await inlineInput.inputValue(), 'Joined textInline café');
   await page.getByRole('button', { name: 'Preview inline edit' }).click();
   await page.getByRole('button', { name: 'Apply transaction' }).click();
   await page.locator('.editable-span').filter({ hasText: 'Inline café' }).waitFor();
@@ -323,7 +425,10 @@ try {
     document.querySelector('footer')?.textContent.includes('Saved and verified'),
   );
   const savedInline = unzipSync(await readFile(inlinePath));
-  assert.ok(strFromU8(savedInline['word/document.xml']).includes('Inline café'));
+  assert.match(
+    strFromU8(savedInline['word/document.xml']),
+    /<w:rPr><w:b\/><\/w:rPr><w:t[^>]*>Inline café<\/w:t>/,
+  );
   for (const [part, bytes] of Object.entries(crossRunParts)) {
     if (part !== 'word/document.xml') assert.deepEqual(savedInline[part], bytes, part);
   }
@@ -373,7 +478,7 @@ try {
   await joinedSpan.click();
   await page.keyboard.press('Delete');
   await inlineInput.waitFor();
-  assert.equal((await inlineInput.inputValue()).length, 'Joined text'.length - 1);
+  assert.equal((await inlineInput.inputValue()).length, 'Joined textInline café'.length - 1);
   await inlineInput.press('Escape');
   await joinedSpan.click();
   await joinedSpan.evaluate((span) => {
@@ -386,7 +491,7 @@ try {
   await inlineInput.waitFor();
   assert.ok((await inlineInput.inputValue()).includes('Pasted café'));
   await inlineInput.press('Escape');
-  // A selection across adjacent source runs remains protected even with codes hidden.
+  // A selection across paragraph boundaries remains protected even with codes hidden.
   const editorContent = page.locator('.cm-content').first();
   await editorContent.press('Control+Home');
   await editorContent.press('Control+Shift+End');
@@ -396,14 +501,14 @@ try {
   await page.locator('.protected-span').first().dblclick();
   assert.equal(await inlineInput.count(), 0);
   await page.keyboard.press('Control+Shift+P');
-  await searchCommands.fill('selected span inline');
+  await searchCommands.fill('selection inline');
   assert.equal(await palette.getByRole('option').getAttribute('aria-disabled'), 'true');
   await page.screenshot({ path: join(output, 'commands-protected.png'), fullPage: true });
   await searchCommands.press('Escape');
   await page.getByRole('button', { name: /cross-run.docx/ }).click();
   await joinedSpan.click();
   await page.keyboard.press('Control+Shift+P');
-  await searchCommands.fill('selected span inline');
+  await searchCommands.fill('selection inline');
   await searchCommands.press('Enter');
   await inlineInput.waitFor();
   await inlineInput.fill('Command draft');
@@ -458,7 +563,7 @@ try {
   await searchCommands.press('Escape');
   assert.deepEqual(errors, []);
   console.log(
-    `Desktop smoke passed: command palette, shortcuts, availability and focus, inspector and inline editing, Unicode drafts, stale/boundary refusal, preview, cross-run replacement, undo/redo, Save As, code inspection, lists and merged/nested tables. Artifacts: ${output}`,
+    `Desktop smoke passed: command palette, persisted remapping, availability and focus, cross-run inline editing and formatting, Unicode drafts, stale/boundary refusal, preview, cross-run replacement, undo/redo, Save As, code inspection, lists and merged/nested tables. Artifacts: ${output}`,
   );
 } catch (error) {
   console.error(error);

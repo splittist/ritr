@@ -1,3 +1,4 @@
+import type { TextPiece } from '../engine/text-range';
 import type { ChangePreview, OpenDocument, SearchMatch, TextEdit } from '../engine/workspace';
 import type { PartDifference } from '../package/docx';
 
@@ -9,6 +10,12 @@ export interface Snapshot {
 export interface DesktopApi {
   snapshot(): Promise<Snapshot>;
   open(): Promise<Snapshot>;
+  previewPieces(edit: {
+    documentId: string;
+    storyId: string;
+    pieces: TextPiece[];
+    expectedRevision: number;
+  }): Promise<ChangePreview>;
   previewEdit(edit: TextEdit & { expectedRevision?: number }): Promise<ChangePreview>;
   previewReplace(
     query: string,
