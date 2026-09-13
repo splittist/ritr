@@ -4,13 +4,13 @@ import type { CodeToken, Story, Token } from '../engine/document';
 import type { Table } from '../engine/table';
 import { RevealEditor } from './RevealEditor';
 import { cellStyle, tableStyle } from './table-layout';
-import type { InlineEditing } from './inline-edit';
+import type { DirectEditing } from './direct-edit';
 
 interface Props {
   story: Story;
   codes: boolean;
   onSelect: (token?: Token) => void;
-  inline: InlineEditing;
+  inline: DirectEditing;
 }
 
 /** HTML owns table geometry; each text region reuses the same CodeMirror projection. */

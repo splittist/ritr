@@ -12,6 +12,7 @@ let window: BrowserWindow;
 const uiFile = join(__dirname, '../ui/index.html');
 const uiUrl = pathToFileURL(uiFile).href;
 const snapshot = () => ({
+  selection: workspace.selection,
   documents: workspace.documents(),
   canUndo: workspace.canUndo,
   canRedo: workspace.canRedo,
@@ -65,8 +66,8 @@ async function createWindow() {
         buttons: ['Keep editing', 'Discard draft and close'],
         defaultId: 0,
         cancelId: 0,
-        message: 'Close with an unapplied inline draft?',
-        detail: 'Preview and apply the draft, then Save As to keep it.',
+        message: 'Close while text input is pending?',
+        detail: 'Keep editing to finish composing or applying the input, then Save As to keep it.',
       }) === 1
     )
       event.preventDefault();
@@ -101,6 +102,16 @@ app
       );
       for (const { bytes } of files) readDocument(DocxPackage.open(bytes));
       for (const { file, bytes } of files) workspace.open(basename(file), bytes);
+      return snapshot();
+    });
+    handle('editProjection', (edit: Parameters<Workspace['applyProjection']>[0]) => {
+      workspace.applyProjection({
+        ...edit,
+        documentId: string(edit.documentId),
+        storyId: string(edit.storyId),
+        origin: string(edit.origin),
+        text: string(edit.text),
+      });
       return snapshot();
     });
     handle('previewPieces', (edit: Parameters<Workspace['previewPieces']>[0]) =>

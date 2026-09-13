@@ -15,14 +15,13 @@ const ready: CommandContext = {
   hasDocument: true,
   canUndo: true,
   canRedo: false,
-  hasInlineDraft: false,
   hasQuery: true,
   hasPreview: true,
   hasChanges: true,
 };
 
-test('commands enforce document, draft, preview, and protected-selection boundaries consistently', () => {
-  assert.match(commandReason('file.saveAs', { ...ready, hasInlineDraft: true })!, /cancel/);
+test('commands enforce document, busy, preview, and protected-selection boundaries consistently', () => {
+  assert.match(commandReason('file.saveAs', { ...ready, busy: true })!, /finish/);
   assert.match(commandReason('search.replace', { ...ready, hasQuery: false })!, /Find text/);
   assert.match(commandReason('transaction.apply', { ...ready, hasPreview: false })!, /preview/);
   assert.match(
@@ -46,7 +45,6 @@ test('commands enforce document, draft, preview, and protected-selection boundar
     commandReason('commands.open', { ...ready, busy: true, connected: false }),
     undefined,
   );
-  assert.equal(commandReason('edit.cancelInline', { ...ready, hasInlineDraft: true }), undefined);
 });
 
 test('invocation rechecks current availability and never calls an unavailable operation', async () => {

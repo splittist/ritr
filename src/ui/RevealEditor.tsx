@@ -1,175 +1,24 @@
-import { textStyle } from './text-format';
-import { editorCommand } from './keymap';
-import { type TextPosition } from '../engine/text-range';
 import { useEffect, useRef } from 'react';
-import { EditorState, RangeSetBuilder } from '@codemirror/state';
+import { Annotation, EditorState, StateEffect, StateField } from '@codemirror/state';
 import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view';
 import type { CodeToken, Story, Token } from '../engine/document';
+import { projectTokens, tokenId } from '../engine/projection';
+import { textStyle } from './text-format';
+import { editorCommand } from './keymap';
+import { deletionRange } from './inline-edit';
 import { paragraphGeometry, paragraphLineStyle } from './paragraph-layout';
-import {
-  deletionRange,
-  editDraft,
-  inputDraft,
-  selectDraft,
-  validInlineText,
-  type InlineEditing,
-} from './inline-edit';
+import type { DirectEditing } from './direct-edit';
 
-class InlineWidget extends WidgetType {
-  constructor(readonly editing: () => InlineEditing) {
-    super();
-  }
-  toDOM(): HTMLElement {
-    const input = document.createElement('textarea');
-    let draft = this.editing().draft!;
-    const { past, future } = this.editing().history;
-    input.className = 'inline-text';
-    input.setAttribute('aria-label', 'Inline text');
-    input.value = draft.text;
-    input.rows = 1;
-    input.spellcheck = false;
-    let composing = false;
-    let selection: { from: number; to: number } | undefined;
-    const resize = () => {
-      input.style.width = `${Math.max(12, Math.min(70, input.value.length + 2))}ch`;
-      input.style.height = 'auto';
-      input.style.height = `${Math.max(28, input.scrollHeight)}px`;
-    };
-    const render = () => {
-      input.value = draft.text;
-      input.setSelectionRange(draft.anchor, draft.head);
-      resize();
-    };
-    const accept = (next: typeof draft, record = true) => {
-      if (record && next.pieces.some((p, i) => p.text !== draft.pieces[i]?.text)) {
-        past.push(draft);
-        future.length = 0;
-      }
-      draft = next;
-      this.editing().change(draft);
-    };
-    const history = (redo: boolean) => {
-      const source = redo ? future : past,
-        target = redo ? past : future;
-      const next = source.pop();
-      if (next) {
-        target.push(draft);
-        accept(next, false);
-        render();
-      }
-    };
-    const update = () => {
-      if (this.editing().busy) {
-        render();
-        return;
-      }
-      try {
-        accept(inputDraft(draft, input.value, input.selectionStart, input.selectionEnd, selection));
-        selection = undefined;
-      } catch (e) {
-        render();
-        this.editing().message(String(e).replace(/^Error: /, ''));
-      }
-      resize();
-    };
-    input.oninput = () => {
-      if (!composing) update();
-    };
-    input.onbeforeinput = (event) => {
-      if (this.editing().busy) {
-        event.preventDefault();
-        return;
-      }
-      if (event.inputType === 'historyUndo' || event.inputType === 'historyRedo') {
-        event.preventDefault();
-        history(event.inputType === 'historyRedo');
-        return;
-      }
-      if (!composing) selection = { from: input.selectionStart, to: input.selectionEnd };
-    };
-    input.addEventListener('compositionstart', () => {
-      selection = { from: input.selectionStart, to: input.selectionEnd };
-      composing = true;
-    });
-    input.addEventListener('compositionend', () => {
-      composing = false;
-      update();
-    });
-    input.onselect = () => {
-      if (!composing && input.value === draft.text)
-        accept(selectDraft(draft, input.selectionStart, input.selectionEnd), false);
-    };
-    input.onkeydown = (event) => {
-      if (this.editing().busy) {
-        event.preventDefault();
-        return;
-      }
-      if (event.isComposing || composing) return;
-      const command = editorCommand(event, this.editing().keymap, true);
-      if (command === 'text.undo' || command === 'text.redo') {
-        event.preventDefault();
-        history(command === 'text.redo');
-        return;
-      }
-      if (
-        !command &&
-        ['Backspace', 'Delete'].includes(event.key) &&
-        !event.ctrlKey &&
-        !event.metaKey &&
-        !event.altKey
-      ) {
-        event.preventDefault();
-        return;
-      }
-      if (command === 'text.cancel') {
-        event.preventDefault();
-        this.editing().cancel();
-      }
-      if (command === 'text.edit') {
-        event.preventDefault();
-        this.editing().message(
-          'Paragraph split is not supported yet. Preview and apply this text edit.',
-        );
-      }
-      if (command === 'text.deleteBackward' || command === 'text.deleteForward') {
-        event.preventDefault();
-        const range = deletionRange(
-          input.value,
-          input.selectionStart,
-          input.selectionEnd,
-          command === 'text.deleteBackward',
-        );
-        if (range.from === range.to) {
-          this.editing().message('This edit stops at a structural boundary.');
-          return;
-        }
-        try {
-          accept(editDraft(draft, range.from, range.to, ''));
-          render();
-        } catch (e) {
-          this.editing().message(String(e));
-        }
-      }
-    };
-    input.onpaste = (event) => {
-      const text = event.clipboardData?.getData('text/plain');
-      if (text !== undefined && !validInlineText(text)) {
-        event.preventDefault();
-        this.editing().message('Paste plain text without tabs or line breaks.');
-      }
-    };
-    requestAnimationFrame(() => {
-      if (!input.isConnected) return;
-      resize();
-      input.focus();
-      input.setSelectionRange(draft.anchor, draft.head);
-    });
-    return input;
-  }
-  ignoreEvent(): boolean {
-    return true;
-  }
-}
+const external = Annotation.define<boolean>();
+const replaceDecorations = StateEffect.define<DecorationSet>();
+const decorations = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update: (value, transaction) => {
+    const replacement = transaction.effects.find((e) => e.is(replaceDecorations));
+    return replacement ? replacement.value : value.map(transaction.changes);
+  },
+  provide: (field) => EditorView.decorations.from(field),
+});
 
 class CodeWidget extends WidgetType {
   constructor(
@@ -208,7 +57,35 @@ class CodeWidget extends WidgetType {
   }
 }
 
-/** The projection stays read-only; a draft replaces one contiguous editable segment visually. */
+class EmptyWidget extends WidgetType {
+  constructor(
+    readonly spanId: string,
+    readonly activate: () => void,
+  ) {
+    super();
+  }
+  toDOM() {
+    const span = document.createElement('span');
+    span.className = 'editable-span empty-span';
+    span.dataset.spanId = this.spanId;
+    span.title = 'Empty text span';
+    span.textContent = '\u200b';
+    span.onmousedown = (event) => {
+      event.preventDefault();
+      this.activate();
+    };
+    return span;
+  }
+}
+class HiddenWidget extends WidgetType {
+  toDOM() {
+    const span = document.createElement('span');
+    span.style.display = 'none';
+    return span;
+  }
+}
+
+/** Native CodeMirror text input, with source mutations serialized through the engine. */
 export function RevealEditor({
   story,
   codes,
@@ -219,286 +96,317 @@ export function RevealEditor({
   story: Story;
   codes: boolean;
   onSelect: (token?: Token) => void;
-  inline: InlineEditing;
+  inline: DirectEditing;
   embedded?: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
-  const select = useRef(onSelect);
-  select.current = onSelect;
-  const editing = useRef(inline);
-  editing.current = inline;
-  const caret = useRef<InlineEditing['restore']>(undefined);
-  const lastRestore = useRef<InlineEditing['restore']>(undefined);
+  const viewRef = useRef<EditorView>(undefined);
+  const current = useRef({ story, codes, onSelect, inline });
+  current.current = { story, codes, onSelect, inline };
+  const projection = useRef(projectTokens(story.tokens));
+  const composing = useRef<string | undefined>(undefined);
+  const preferred = useRef<string | undefined>(undefined);
+  const lastRestore = useRef<DirectEditing['restore']>(undefined);
+  const lastFocus = useRef<DirectEditing['focus']>(undefined);
+  const sync = useRef(() => {});
   useEffect(() => {
-    let text = '';
-    const decorations = new RangeSetBuilder<Decoration>();
-    const atomic = new RangeSetBuilder<Decoration>();
-    const lines: ReturnType<Decoration['range']>[] = [];
-    const locations: { from: number; to: number; token: Token }[] = [];
-    const markers = new Map(
-      story.tokens.flatMap((t) =>
-        t.kind === 'code' && t.role === 'list-label' && t.paragraph
-          ? [[t.paragraph.id, t] as const]
-          : [],
-      ),
-    );
-    const widths = new Map<string, number>();
-    const context = document.createElement('canvas').getContext('2d')!;
-    context.font = '14px Consolas, "Cascadia Code", monospace';
-    for (const p of story.paragraphs) {
-      const label = p.numbering;
-      if (label?.suffix === 'tab' && label.text)
-        widths.set(p.id, Math.ceil(context.measureText(label.text).width) + 8);
-    }
-    const addWidget = (token: CodeToken) => {
-      const from = text.length;
-      text += '\ufffc';
-      const decoration = Decoration.replace({
-        widget: new CodeWidget(
-          token,
-          (t) => select.current(t),
-          token.paragraph
-            ? paragraphGeometry(token.paragraph.layout, widths.get(token.paragraph.id)).markerWidth
-            : 0,
-        ),
-      });
-      decorations.add(from, text.length, decoration);
-      atomic.add(from, text.length, decoration);
-    };
-    const draftIds = new Set(editing.current.draft?.pieces.map((p) => p.spanId));
-    let draftStarted = false;
-    let paragraph: CodeToken['paragraph'];
-    for (const token of story.tokens) {
-      if (token.kind === 'code' && token.role === 'list-label') continue;
-      if (token.kind === 'code' && token.role === 'paragraph-start' && token.paragraph) {
-        if (text && !text.endsWith('\n')) text += '\n';
-        paragraph = token.paragraph;
-        lines.push(
-          Decoration.line({
-            attributes: {
-              class: 'paragraph-line',
-              style: paragraphLineStyle(paragraph.layout, false, widths.get(paragraph.id)),
-              'data-paragraph': paragraph.id,
-            },
-          }).range(text.length),
-        );
-        const marker = markers.get(paragraph.id);
-        if (marker?.kind === 'code') addWidget(marker);
-      }
-      const from = text.length;
-      if (draftStarted && token.kind === 'code' && token.category === 'format') continue;
-      if (token.kind === 'code' && token.category !== 'format') draftStarted = false;
-      if (
-        token.kind === 'text' &&
-        draftIds.has(token.span.id) &&
-        token.span.id !== editing.current.draft?.spanId
-      )
-        continue;
-      if (token.kind === 'text') {
-        if (token.span.id === editing.current.draft?.spanId) draftStarted = true;
-        // Empty source spans remain selectable without inserting literal document text.
-        text += token.span.text || '\u200b';
-        decorations.add(
-          from,
-          text.length,
-          token.span.id === editing.current.draft?.spanId
-            ? Decoration.replace({ widget: new InlineWidget(() => editing.current) })
-            : Decoration.mark({
-                class: `${token.span.editable ? 'editable-span' : 'protected-span'}${token.span.text ? '' : ' empty-span'}`,
-                attributes: {
-                  'data-span-id': token.span.id,
-                  style: textStyle(token.span),
-                  ...(token.span.text ? {} : { title: 'Empty text span' }),
-                },
-              }),
-        );
-        locations.push({ from, to: text.length, token });
-      } else if (codes || token.category === 'opaque') {
-        addWidget(token);
-      }
-      if (
-        token.kind === 'code' &&
-        (token.label === '¶' || token.label === 'br' || token.label === 'cr')
-      ) {
-        text += '\n';
-        if (token.role === 'paragraph-end') paragraph = undefined;
-        else if (paragraph)
-          lines.push(
-            Decoration.line({
-              attributes: {
-                class: 'paragraph-line',
-                style: paragraphLineStyle(paragraph.layout, true, widths.get(paragraph.id)),
-              },
-            }).range(text.length),
-          );
-      }
-      if (token.kind === 'code' && token.label === 'tab') text += '\t';
-    }
-    const ranges = decorations.finish();
-    const atomicRanges = atomic.finish();
-    const position = (
-      offset: number,
-      side: 'left' | 'right',
-      preferred?: TextPosition,
-    ): TextPosition | undefined => {
-      const candidates = locations.filter(
-        (l) => offset >= l.from && offset <= l.to && l.token.kind === 'text',
-      );
-      const location =
-        candidates.find(
+    let alive = true;
+    const origin = () => tokenId(current.current.story.tokens[0]!);
+    const selected = () => {
+      const view = viewRef.current!;
+      const { from, to } = view.state.selection.main;
+      return (
+        projection.current.locations.find(
           (l) =>
             l.token.kind === 'text' &&
-            l.token.span.id === preferred?.spanId &&
-            Math.min(l.token.span.text.length, offset - l.from) === preferred.offset,
+            l.from <= from &&
+            to <= l.to &&
+            (from < l.to || l.from === l.to),
         ) ??
-        (side === 'left'
-          ? candidates.find((l) => offset > l.from)
-          : candidates.find((l) => offset < l.to)) ??
-        candidates[0];
-      if (location?.token.kind !== 'text') return;
-      return {
-        spanId: location.token.span.id,
-        offset: Math.min(location.token.span.text.length, offset - location.from),
-        affinity: side,
-      };
-    };
-    const selectedLocation = (editor: EditorView) => {
-      const { from, to } = editor.state.selection.main;
-      return (
-        locations.find((l) => from >= l.from && from < l.to && to <= l.to) ??
-        locations.find((l) => from >= l.from && to <= l.to)
+        projection.current.locations.find(
+          (l) => l.token.kind === 'text' && l.from <= from && to <= l.to,
+        )
       );
     };
-    const begin = (editor: EditorView, insert?: string, backward?: boolean) => {
-      const { from, to } = editor.state.selection.main;
-      const anchor = position(
+    const send = (from: number, to: number, text: string) =>
+      current.current.inline.change({
+        origin: origin(),
         from,
-        from === to ? 'left' : 'right',
-        from === to ? activeCaret : undefined,
-      );
-      const head = from === to ? anchor : position(to, 'left');
-      if (!anchor || !head) {
-        editing.current.message(
-          'Select text within one text segment; structural boundaries are preserved.',
-        );
-        return;
+        to,
+        text,
+        typingSpan: preferred.current,
+      });
+    const flushComposition = () => {
+      if (!alive || composing.current === undefined) return;
+      const before = composing.current,
+        after = viewRef.current!.state.doc.toString();
+      composing.current = undefined;
+      let from = 0,
+        to = before.length,
+        end = after.length;
+      while (from < to && from < end && before[from] === after[from]) from++;
+      while (to > from && end > from && before[to - 1] === after[end - 1]) {
+        to--;
+        end--;
       }
-      const forward = editor.state.selection.main.anchor <= editor.state.selection.main.head;
-      editing.current.start(forward ? anchor : head, forward ? head : anchor, insert, backward);
+      if (from > 0 && /[\ud800-\udbff]/.test(before[from - 1]!)) from--;
+      if (to < before.length && /[\udc00-\udfff]/.test(before[to]!)) {
+        to++;
+        end++;
+      }
+      if (before !== after) send(from, to, after.slice(from, end));
+      else sync.current();
+      current.current.inline.composition(false);
     };
-    const restore =
-      editing.current.restore !== lastRestore.current ? editing.current.restore : caret.current;
-    lastRestore.current = editing.current.restore;
-    const projectionOffset = (p?: TextPosition) => {
-      const location = locations.find(
-        (l) => l.token.kind === 'text' && l.token.span.id === p?.spanId,
-      );
-      return location?.token.kind === 'text' && p
-        ? location.from + Math.min(p.offset, location.token.span.text.length)
-        : undefined;
-    };
-    const restoredAnchor = projectionOffset(restore?.anchor),
-      restoredHead = projectionOffset(restore?.head);
-    const restored = restoredAnchor !== undefined && restoredHead !== undefined;
-    let activeCaret = restored && restoredAnchor === restoredHead ? restore?.anchor : undefined;
     const view = new EditorView({
       parent: host.current!,
       state: EditorState.create({
-        doc: text,
-        selection: restored ? { anchor: restoredAnchor!, head: restoredHead! } : undefined,
+        doc: projection.current.text,
         extensions: [
-          EditorState.readOnly.of(true),
+          decorations,
           EditorView.lineWrapping,
-          EditorView.updateListener.of((update) => {
-            if (update.selectionSet) {
-              select.current(selectedLocation(update.view)?.token);
-              const { from, to } = update.state.selection.main;
-              const a = position(
-                from,
-                from === to ? 'left' : 'right',
-                from === to ? activeCaret : undefined,
-              );
-              activeCaret = from === to ? a : undefined;
-              editing.current.selectRange(a, from === to ? a : position(to, 'left'));
-            }
-          }),
-          EditorView.decorations.of(ranges),
-          EditorView.decorations.of(Decoration.set(lines, true)),
-          EditorView.atomicRanges.of(() => atomicRanges as DecorationSet),
           EditorView.contentAttributes.of({
             'aria-label': 'Reveal Codes document',
             spellcheck: 'false',
           }),
-          EditorView.domEventHandlers({
-            dblclick: (event, editor) => {
-              const target = (event.target as HTMLElement).closest('.empty-span');
-              const empty = locations.find(
+          EditorState.transactionFilter.of((transaction) => {
+            if (!transaction.docChanged || transaction.annotation(external)) return transaction;
+            if (current.current.inline.busy || transaction.startState.selection.ranges.length !== 1)
+              return [];
+            let valid = true;
+            transaction.changes.iterChanges((from, to, _a, _b, inserted) => {
+              if (
+                transaction.startState.doc.sliceString(from, to).includes('\ufffc') ||
+                /[\u0000-\u0009\u000b-\u001f\ufffc\ufffe\uffff]/u.test(inserted.toString())
+              )
+                valid = false;
+            });
+            transaction.changes.iterChanges((from, to) => {
+              const protectedRange = projection.current.locations.find(
                 (l) =>
                   l.token.kind === 'text' &&
-                  l.token.span.id === target?.getAttribute('data-span-id'),
+                  !l.token.span.editable &&
+                  ((from < l.to && to > l.from) ||
+                    (from === to &&
+                      from >= l.from &&
+                      from <= l.to &&
+                      (preferred.current === l.token.span.id || (from > l.from && from < l.to)))),
               );
-              if (empty?.token.kind === 'text') {
-                const point: TextPosition = {
-                  spanId: empty.token.span.id,
-                  offset: 0,
-                  affinity: 'right',
-                };
-                editing.current.start(point, point);
-              } else begin(editor);
-              return true;
+              if (protectedRange) valid = false;
+            });
+            if (!valid) {
+              current.current.inline.message(
+                'This edit would change a protected object, tab, or unsupported character.',
+              );
+              return [];
+            }
+            return transaction;
+          }),
+          EditorView.updateListener.of((update) => {
+            const nativeChange =
+              update.docChanged && !update.transactions.some((t) => t.annotation(external));
+            if (nativeChange) {
+              if (composing.current === undefined) {
+                const changes: { from: number; to: number; text: string }[] = [];
+                update.changes.iterChanges((from, to, _a, _b, inserted) =>
+                  changes.push({ from, to, text: inserted.toString() }),
+                );
+                // Descending offsets compose independently within one native transaction.
+                for (const change of changes.reverse()) send(change.from, change.to, change.text);
+                preferred.current = undefined;
+              }
+              projection.current = {
+                ...projection.current,
+                text: update.state.doc.toString(),
+                locations: projection.current.locations.map((l) => ({
+                  ...l,
+                  from: update.changes.mapPos(l.from, -1),
+                  to: update.changes.mapPos(l.to, 1),
+                })),
+              };
+            }
+            if (
+              update.selectionSet &&
+              !nativeChange &&
+              !update.transactions.some((t) => t.annotation(external))
+            ) {
+              const location = selected();
+              preferred.current =
+                location?.token.kind === 'text' ? location.token.span.id : undefined;
+              current.current.onSelect(location?.token);
+            }
+          }),
+          EditorView.domEventHandlers({
+            compositionstart: () => {
+              composing.current = view.state.doc.toString();
+              current.current.inline.composition(true);
+              return false;
             },
-            mouseup: (_event, editor) => {
-              select.current(selectedLocation(editor)?.token);
-              const { from, to } = editor.state.selection.main;
-              const a = position(
-                from,
-                from === to ? 'left' : 'right',
-                from === to ? activeCaret : undefined,
-              );
-              activeCaret = from === to ? a : undefined;
-              editing.current.selectRange(a, from === to ? a : position(to, 'left'));
+            compositionend: () => {
+              setTimeout(flushComposition, 0);
               return false;
             },
             keydown: (event, editor) => {
-              if (event.isComposing) return false;
-              const command = editorCommand(event, editing.current.keymap);
+              if (event.isComposing || composing.current !== undefined) return false;
+              const command = editorCommand(event, current.current.inline.keymap);
               const deleting =
                 command === 'text.deleteBackward' || command === 'text.deleteForward';
-              if (
-                !deleting &&
-                command !== 'text.edit' &&
-                (event.ctrlKey || event.metaKey || event.altKey || event.key.length !== 1)
-              )
-                return false;
-              begin(
-                editor,
-                deleting ? '' : command === 'text.edit' ? undefined : event.key,
-                deleting ? command === 'text.deleteBackward' : undefined,
-              );
-              event.preventDefault();
-              return true;
-            },
-            paste: (event, editor) => {
-              const value = event.clipboardData?.getData('text/plain');
-              if (value !== undefined) {
+              if (command === 'paragraph.split' || deleting) {
                 event.preventDefault();
-                if (validInlineText(value)) begin(editor, value);
-                else editing.current.message('Paste plain text without tabs or line breaks.');
+                const selection = editor.state.selection.main;
+                const range = deleting
+                  ? deletionRange(
+                      editor.state.doc.toString(),
+                      selection.from,
+                      selection.to,
+                      command === 'text.deleteBackward',
+                    )
+                  : { from: selection.from, to: selection.to };
+                const text = deleting ? '' : '\n';
+                if (range.from !== range.to || text)
+                  editor.dispatch({
+                    changes: { ...range, insert: text },
+                    selection: { anchor: range.from + text.length },
+                    userEvent: deleting ? 'delete' : 'input',
+                  });
+                return true;
               }
-              return true;
+              // An unbound editing key must not fall through to browser behavior.
+              if (
+                ['Enter', 'Backspace', 'Delete'].includes(event.key) &&
+                !event.ctrlKey &&
+                !event.metaKey &&
+                !event.altKey
+              ) {
+                event.preventDefault();
+                return true;
+              }
+              return false;
             },
           }),
         ],
       }),
     });
-    if (restored && !editing.current.draft) view.focus();
-    return () => {
-      const { anchor, head } = view.state.selection.main;
-      const a = position(anchor, 'left', anchor === head ? activeCaret : undefined),
-        h = anchor === head ? a : position(head, 'left');
-      caret.current = a && h ? { anchor: a, head: h } : undefined;
-      view.destroy();
+    viewRef.current = view;
+    sync.current = () => {
+      if (!alive || current.current.inline.pending || composing.current !== undefined) return;
+      const { story, codes, inline } = current.current;
+      const next = projectTokens(story.tokens);
+      const ranges: ReturnType<Decoration['range']>[] = [];
+      const context = document.createElement('canvas').getContext('2d')!;
+      context.font = '14px Consolas, "Cascadia Code", monospace';
+      const widths = new Map(
+        story.paragraphs.map((p) => [
+          p.id,
+          Math.ceil(context.measureText(p.numbering?.text ?? '').width) + 8,
+        ]),
+      );
+      for (const location of next.locations) {
+        const { token, from, to } = location;
+        if (token.kind === 'text') {
+          if (from !== to)
+            ranges.push(
+              Decoration.mark({
+                class: token.span.editable ? 'editable-span' : 'protected-span',
+                inclusive: false,
+                attributes: { 'data-span-id': token.span.id, style: textStyle(token.span) },
+              }).range(from, to),
+            );
+          else
+            ranges.push(
+              Decoration.widget({
+                widget: new EmptyWidget(token.span.id, () => {
+                  preferred.current = token.span.id;
+                  view.dispatch({ selection: { anchor: from }, annotations: external.of(true) });
+                  view.focus();
+                  current.current.onSelect(token);
+                }),
+                side: -1,
+              }).range(from),
+            );
+        } else {
+          if (token.role === 'paragraph-start' && token.paragraph)
+            ranges.push(
+              Decoration.line({
+                attributes: {
+                  class: 'paragraph-line',
+                  'data-paragraph': token.paragraph.id,
+                  style: paragraphLineStyle(
+                    token.paragraph.layout,
+                    false,
+                    widths.get(token.paragraph.id),
+                  ),
+                },
+              }).range(from),
+            );
+          const visible = codes || token.category === 'opaque' || token.role === 'list-label';
+          const widget = visible
+            ? new CodeWidget(
+                token,
+                (t) => current.current.onSelect(t),
+                token.paragraph
+                  ? paragraphGeometry(token.paragraph.layout, widths.get(token.paragraph.id))
+                      .markerWidth
+                  : 0,
+              )
+            : new HiddenWidget();
+          if (to > from && token.role !== 'paragraph-end')
+            ranges.push(Decoration.replace({ widget }).range(from, to));
+          else if (visible)
+            ranges.push(
+              Decoration.widget({
+                widget,
+                // Equal-position widgets follow source order. Giving closing tags a
+                // different side puts the next Run before the preceding /Run.
+                side: -1,
+              }).range(from),
+            );
+        }
+      }
+      const old = view.state.doc.toString();
+      let { anchor, head } = view.state.selection.main;
+      const restoreSelection =
+        inline.restore &&
+        inline.restore !== lastRestore.current &&
+        inline.restore.origin === origin();
+      if (restoreSelection) {
+        anchor = inline.restore!.anchor;
+        head = inline.restore!.head;
+        lastRestore.current = inline.restore;
+        preferred.current = undefined;
+      }
+      const requestFocus = inline.focus && inline.focus !== lastFocus.current;
+      if (requestFocus) {
+        const target = next.locations.find(
+          (l) => l.token.kind === 'text' && l.token.span.id === inline.focus?.spanId,
+        );
+        if (target) {
+          anchor = target.from;
+          head = target.to;
+        }
+        lastFocus.current = inline.focus;
+      }
+      projection.current = next;
+      view.dispatch({
+        changes: old === next.text ? undefined : { from: 0, to: old.length, insert: next.text },
+        selection: {
+          anchor: Math.min(anchor, next.text.length),
+          head: Math.min(head, next.text.length),
+        },
+        effects: replaceDecorations.of(Decoration.set(ranges, true)),
+        annotations: external.of(true),
+      });
+      if (requestFocus || restoreSelection) view.focus();
     };
-  }, [story, codes, inline.draft?.spanId, inline.restore]);
+    sync.current();
+    return () => {
+      alive = false;
+      view.destroy();
+      viewRef.current = undefined;
+    };
+  }, []);
+  useEffect(() => {
+    sync.current();
+  }, [story, codes, inline.pending, inline.focus, inline.restore]);
   return <div className={`reveal-editor${embedded ? ' embedded' : ''}`} ref={host} />;
 }

@@ -1,13 +1,16 @@
+import type { ProjectionEdit, ProjectionSelection } from '../engine/projection';
 import type { TextPiece } from '../engine/text-range';
 import type { ChangePreview, OpenDocument, SearchMatch, TextEdit } from '../engine/workspace';
 import type { PartDifference } from '../package/docx';
 
 export interface Snapshot {
+  selection?: ProjectionSelection;
   documents: OpenDocument[];
   canUndo: boolean;
   canRedo: boolean;
 }
 export interface DesktopApi {
+  editProjection(edit: ProjectionEdit): Promise<Snapshot>;
   snapshot(): Promise<Snapshot>;
   open(): Promise<Snapshot>;
   previewPieces(edit: {

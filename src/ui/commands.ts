@@ -1,10 +1,4 @@
-export type EditorCommandId =
-  | 'text.deleteBackward'
-  | 'text.deleteForward'
-  | 'text.edit'
-  | 'text.cancel'
-  | 'text.undo'
-  | 'text.redo';
+export type EditorCommandId = 'text.deleteBackward' | 'text.deleteForward' | 'paragraph.split';
 
 export interface CommandContext {
   connected: boolean;
@@ -12,7 +6,6 @@ export interface CommandContext {
   hasDocument: boolean;
   canUndo: boolean;
   canRedo: boolean;
-  hasInlineDraft: boolean;
   editReason?: string;
   selectionReason?: string;
   hasQuery: boolean;
@@ -28,12 +21,8 @@ interface Definition {
 }
 const documentRequired = (c: CommandContext) =>
   !c.hasDocument ? 'Open a document first.' : undefined;
-const noInlineDraft = (c: CommandContext) =>
-  c.hasInlineDraft ? 'Apply or cancel the inline draft first.' : undefined;
 const searchRequired = (c: CommandContext) =>
-  documentRequired(c) ??
-  noInlineDraft(c) ??
-  (!c.hasQuery ? 'Enter text in Find text first.' : undefined);
+  documentRequired(c) ?? (!c.hasQuery ? 'Enter text in Find text first.' : undefined);
 
 /** Shared presentation and availability for buttons, shortcuts, and the palette. */
 export const commands = [
@@ -47,47 +36,39 @@ export const commands = [
     id: 'file.open',
     label: 'Open documents',
     description: 'Open one or more DOCX files.',
-    unavailable: noInlineDraft,
+    unavailable: () => undefined,
   },
   {
     id: 'file.saveAs',
     label: 'Save As…',
     description: 'Save and verify a new copy of the current document.',
-    unavailable: (c: CommandContext) => documentRequired(c) ?? noInlineDraft(c),
+    unavailable: (c: CommandContext) => documentRequired(c),
   },
   {
     id: 'history.undo',
     label: 'Undo',
-    description: 'Undo the last workspace transaction; clears any inline draft.',
+    description: 'Undo the last workspace transaction.',
     unavailable: (c: CommandContext) =>
       !c.canUndo ? 'No workspace transaction to undo.' : undefined,
   },
   {
     id: 'history.redo',
     label: 'Redo',
-    description: 'Redo the last undone workspace transaction; clears any inline draft.',
+    description: 'Redo the last undone workspace transaction.',
     unavailable: (c: CommandContext) =>
       !c.canRedo ? 'No workspace transaction to redo.' : undefined,
   },
   {
     id: 'edit.inline',
-    label: 'Edit selection inline',
-    description: 'Start an inline draft across adjacent formatting runs.',
-    unavailable: (c: CommandContext) =>
-      documentRequired(c) ?? noInlineDraft(c) ?? c.selectionReason,
+    label: 'Focus document text',
+    description: 'Focus the selected source text in the document editor.',
+    unavailable: (c: CommandContext) => documentRequired(c) ?? c.selectionReason,
   },
   {
     id: 'edit.preview',
     label: 'Preview text edit',
-    description: 'Preview the inline draft or inspector text changes.',
+    description: 'Preview the inspector text changes.',
     unavailable: (c: CommandContext) => documentRequired(c) ?? c.editReason,
-  },
-  {
-    id: 'edit.cancelInline',
-    label: 'Cancel inline edit',
-    description: 'Discard the unapplied inline draft.',
-    unavailable: (c: CommandContext) =>
-      !c.hasInlineDraft ? 'There is no inline draft.' : undefined,
   },
   {
     id: 'search.focus',

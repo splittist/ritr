@@ -51,6 +51,8 @@ previews. Undo/redo moves whole transactions between two stacks.
 | `src/engine/paragraph.ts` | Paragraph list membership and indentation with property provenance |
 | `src/ui/paragraph-layout.ts` | Source indentation to bounded, approximate display geometry |
 | `src/engine/workspace.ts` | Exclusive mutation API: search, preview, commit, history, events, saved state |
+| `src/engine/paragraph-edit.ts` | Atomic source-preserving paragraph split/join and native-input edits |
+| `src/engine/projection.ts` | Shared logical editor offsets and history selections |
 | `src/engine/text-range.ts` | Shared text boundaries, source positions, caret affinity, and formatted piece edits |
 | `src/ui/keymap.ts` | Default chords, scoped matching, validated overrides, and shortcut presentation |
 | `src/engine/search.ts` | Literal cross-run matching with structural boundaries and source ranges |
@@ -130,8 +132,8 @@ Identity tables live in immutable package snapshots and therefore travel with
 workspace undo/redo. They never appear in saved OOXML. Reopening a file starts
 a new identity session. These IDs are scoped to the opened document and part;
 they are not persistent cross-file identifiers. Node continuity also does not
-map a caret from a removed span into another span: future split/join commands
-must define that position mapping and their own structural editing policy.
+map a caret from a removed span into another span: paragraph transactions record
+logical projection selections to restore the caret during undo/redo.
 
 Replacing text rewrites just its `w:t` element, escaping text and setting
 `xml:space="preserve"`. Other elements, attributes, namespace declarations,
@@ -140,22 +142,24 @@ inside a text element causes editing refusal.
 
 ## What the UI owns
 
-React owns navigation, drafts, and the currently displayed preview. The
-workspace in Electron's main process owns committed document state. The
-CodeMirror buffer is read-only; it contains display placeholders for codes,
-which are never written into the DOCX. Selecting a span opens the text inspector.
-The inspector submits a `TextEdit`, exactly like any other engine client.
-Inline editing uses a native textarea widget for a contiguous editable text segment.
-`App.tsx` owns the source revision and draft history; `inline-edit.ts` maintains one
-piece per source span and reconciles individual browser input events. The desktop
-stages those pieces with `previewPieces`, preserving all untouched run properties.
-`text-range.ts` supplies shared segmentation and source-position mapping.
+React owns navigation, inspector drafts, and the currently displayed preview.
+The workspace in Electron's main process owns committed document state. CodeMirror
+accepts native input in place. `projection.ts` provides shared logical text offsets:
+format codes and list labels are widgets; structure objects occupy protected slots.
+`App.tsx` serializes input with revision checks, keeping optimistic CodeMirror text
+while pending and restoring confirmed state on failure. Composition batches until
+completion. The inspector still submits a previewable `TextEdit`.
+
+`paragraph-edit.ts` implements the source-preserving split/join and projection-edit
+operations. `Workspace.applyProjection` stages the whole input before committing one
+history entry; undo/redo returns the logical caret/selection alongside snapshots.
+`text-range.ts` supplies the run formatting and source-position operations.
 
 `commands.ts` is a small GUI action registry. Buttons, palette entries, and global
 shortcuts share command metadata and availability checks. `App.tsx` supplies one
 typed handler per command ID; these handlers still call the named desktop API and
 the existing engine transactions. No generic IPC execution endpoint is exposed.
-Navigation and direct text input remain ordinary selection/draft interactions.
+Navigation waits while native input is being committed.
 
 Dispatch rechecks the current context and serializes operations. A disabled
 action returns its reason without invoking its handler. The modal palette keeps
@@ -166,8 +170,8 @@ including keyboard selection and protected boundaries, drives edit availability.
 Adding an action means defining its ID and metadata, implementing its typed
 handler, and exposing any desired button; the palette picks it up automatically.
 
-The current UI deliberately does not translate arbitrary CodeMirror changes
-into commands. That requires paragraph and formatting-boundary semantics first.
+CodeMirror changes are translated into bounded engine operations; code widgets
+and protected objects never become ordinary text.
 
 ## How to add behavior
 
@@ -179,10 +183,9 @@ into commands. That requires paragraph and formatting-boundary semantics first.
    multi-document failure behavior, undo/redo, and save/reopen.
 6. Expose the operation through the IPC contract and UI.
 
-The next substantial slice should add conservative paragraph split/join commands
-using the identity-aware patch path. The read-only block hierarchy is not yet a
-structural editing graph. Commands must still specify allowed paragraph properties,
-review and opaque-content boundaries, and how selections move across a split/join.
+The bounded paragraph slice is implemented. Future structural commands should
+extend its explicit rules for paragraph properties, container boundaries, source
+identity, and caret mapping instead of rewriting arbitrary XML.
 
 ## Tradeoffs to revisit
 
@@ -199,4 +202,4 @@ Library references used for these boundaries:
 
 Key chords and focus scopes are defined separately in `keymap.ts`. The sidebar's
 JSON overrides are validated, persisted in local storage, and applied to both
-matching and shortcut labels. Editor deletion and draft history also use this map.
+matching and shortcut labels. Paragraph splitting and editor deletion also use this map.

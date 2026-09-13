@@ -18,10 +18,15 @@ crossRunParts['word/document.xml'] = strToU8(
       'A small document with a clear beginning.',
       'Cross-run </w:t></w:r><w:r><w:rPr><w:b/></w:rPr><w:t>needle',
     )
+    .replace(
+      /(<w:p[^>]*>)/,
+      '$1<w:bookmarkStart w:id="50" w:name="split_join_smoke"/><w:proofErr w:type="spellStart"/>',
+    )
+    .replace('</w:p>', '<w:proofErr w:type="spellEnd"/><w:bookmarkEnd w:id="50"/></w:p>')
     .replace('Replace this phrase', 'Unrelated text')
     .replace(
       '<w:sectPr',
-      '<w:p><w:r><w:rPr><w:b/><w:i/><w:u w:val="single"/><w:color w:val="1234AB"/><w:highlight w:val="yellow"/><w:rFonts w:ascii="Arial"/><w:sz w:val="72"/></w:rPr><w:t>Formatted preview</w:t></w:r><w:r><w:t> Plain preview</w:t></w:r></w:p><w:sectPr',
+      '<w:p><w:r><w:rPr><w:b/><w:i/><w:u w:val="single"/><w:color w:val="1234AB"/><w:highlight w:val="yellow"/><w:rFonts w:ascii="Arial"/><w:sz w:val="72"/></w:rPr><w:t>Formatted preview</w:t></w:r><w:r><w:rPr><w:b w:val="0"/><w:i w:val="0"/></w:rPr><w:t> Plain preview</w:t></w:r></w:p><w:sectPr',
     ),
 );
 await writeFile(crossRunPath, zipSync(crossRunParts));
@@ -76,15 +81,21 @@ try {
   await page.keyboard.press('Control+k');
   await page.getByRole('dialog', { name: 'Commands', exact: true }).waitFor();
   await page.getByRole('combobox', { name: 'Search commands' }).press('Escape');
-  await page.locator('.editable-span').first().dblclick();
-  const remappedDraft = page.getByRole('textbox', { name: 'Inline text', exact: true });
-  await remappedDraft.fill('abc');
-  await remappedDraft.press('End');
-  await remappedDraft.press('Backspace');
-  assert.equal(await remappedDraft.inputValue(), 'abc');
-  await remappedDraft.press('Alt+h');
-  assert.equal(await remappedDraft.inputValue(), 'ab');
-  await remappedDraft.press('Escape');
+  const initialText = 'A small document with a clear beginning.';
+  await page.locator('.editable-span').first().click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('Backspace');
+  assert.equal(await page.locator('.editable-span').first().textContent(), initialText);
+  await page.keyboard.press('Alt+h');
+  await page
+    .locator('.editable-span')
+    .filter({ hasText: /^A small document with a clear beginning$/ })
+    .waitFor();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await page
+    .locator('.editable-span')
+    .filter({ hasText: /^A small document with a clear beginning\.$/ })
+    .waitFor();
   await page.locator('.keymap-settings summary').click();
   await keySettings.fill('{}');
   await page.getByRole('button', { name: 'Apply keybindings' }).click();
@@ -300,9 +311,18 @@ try {
       sameFont: true,
     });
   }
+  await page.getByLabel('Reveal codes', { exact: true }).check();
+  const expectedCodes = await page.evaluate(async () => {
+    const doc = (await window.ritr.snapshot()).documents.find((d) => d.name === 'cross-run.docx');
+    return doc.model.stories[0].tokens.filter((t) => t.kind === 'code').map((t) => t.label);
+  });
+  assert.deepEqual(
+    await page.locator('.code-token').allTextContents(),
+    expectedCodes,
+    'Code widgets must follow source order, including adjacent Run boundaries',
+  );
   await page.screenshot({ path: join(output, 'text-formatting.png'), fullPage: true });
-  // Arbitrary selections cross formatting runs in either projection.
-  const crossInput = page.getByRole('textbox', { name: 'Inline text', exact: true });
+  // Native text input replaces selections without a draft field or apply step.
   for (const codes of [false, true]) {
     await page.getByLabel('Reveal codes', { exact: true }).setChecked(codes);
     const first = page.locator('.editable-span').filter({ hasText: /^Cross-run $/ });
@@ -321,284 +341,201 @@ try {
     });
     await page.waitForTimeout(100);
     await page.keyboard.press('X');
-    await crossInput.waitFor();
-    assert.equal(await crossInput.inputValue(), 'Cross-rXdle');
-    await crossInput.press('Control+z');
-    assert.equal(await crossInput.inputValue(), 'Cross-run needle');
-    await crossInput.press('Control+y');
-    assert.equal(await crossInput.inputValue(), 'Cross-rXdle');
-    await crossInput.press('End');
-    await crossInput.pressSequentially('!');
-    await crossInput.press('Control+z');
-    assert.equal(await crossInput.inputValue(), 'Cross-rXdle');
-    await crossInput.press('Control+y');
-    assert.equal(await crossInput.inputValue(), 'Cross-rXdle!');
-    await page.getByLabel('Reveal codes', { exact: true }).setChecked(!codes);
-    await crossInput.press('Control+z');
-    assert.equal(await crossInput.inputValue(), 'Cross-rXdle');
-    await crossInput.press('Control+y');
-    await crossInput.press('Control+Enter');
-    await page.getByLabel('Change preview').waitFor();
-    assert.deepEqual(await page.locator('.diff ins').allTextContents(), ['Cross-rX', 'dle!']);
-    await page.getByRole('button', { name: 'Apply transaction' }).click();
     await page
       .locator('.editable-span')
-      .filter({ hasText: /^dle!$/ })
+      .filter({ hasText: /^Cross-rX$/ })
       .waitFor();
-    const crossSave = join(output, `cross-inline-${codes}.docx`);
+    await page.locator('.editable-span').filter({ hasText: /^dle$/ }).waitFor();
+    assert.equal(await page.locator('.inline-text').count(), 0);
+    assert.equal(await page.getByLabel('Change preview').count(), 0);
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.querySelectorAll('.paragraph-line').length === 5);
+    // The caret is at the start of the new paragraph. Rapid input is queued losslessly.
+    await page.keyboard.type('fast typing');
+    await page.waitForFunction(async () => {
+      const snapshot = await window.ritr.snapshot();
+      const doc = snapshot.documents.find((d) => d.name === 'cross-run.docx');
+      return doc.model.stories[0].tokens
+        .filter((t) => t.kind === 'text')
+        .map((t) => t.span.text)
+        .join('')
+        .includes('fast typingdle');
+    });
+    await page
+      .locator('.editable-span')
+      .filter({ hasText: /fast typing/ })
+      .waitFor();
+    await page.keyboard.press('Home');
+    await page.keyboard.press('Backspace');
+    await page.waitForFunction(() => document.querySelectorAll('.paragraph-line').length === 4);
+    const saved = join(output, `direct-${codes}.docx`);
     await app.evaluate(({ dialog }, path) => {
       dialog.showSaveDialog = async () => ({ canceled: false, filePath: path });
-    }, crossSave);
+    }, saved);
     await page.getByRole('button', { name: 'Save As…' }).click();
     await page.waitForFunction(() =>
       document.querySelector('footer')?.textContent.includes('Saved and verified'),
     );
-    const parts = unzipSync(await readFile(crossSave));
-    const xml = strFromU8(parts['word/document.xml']);
-    assert.match(xml, /<w:rPr><w:b\/><\/w:rPr><w:t[^>]*>dle!<\/w:t>/);
+    const parts = unzipSync(await readFile(saved));
     for (const [name, bytes] of Object.entries(crossRunParts))
       if (name !== 'word/document.xml') assert.deepEqual(parts[name], bytes);
-    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    // Undo the join, queued typing transactions, split, and replacement.
+    let attempts = 0;
+    while (
+      await page.evaluate(async () => {
+        const doc = (await window.ritr.snapshot()).documents.find(
+          (d) => d.name === 'cross-run.docx',
+        );
+        return !doc.model.stories[0].tokens.some(
+          (t) => t.kind === 'text' && t.span.text === 'needle',
+        );
+      })
+    ) {
+      assert.ok(attempts++ < 30);
+      const revision = await page.evaluate(
+        async () =>
+          (await window.ritr.snapshot()).documents.find((d) => d.name === 'cross-run.docx')
+            .revision,
+      );
+      await page.getByRole('button', { name: 'Undo', exact: true }).click();
+      await page.waitForFunction(
+        async (previous) =>
+          (await window.ritr.snapshot()).documents.find((d) => d.name === 'cross-run.docx')
+            .revision !== previous,
+        revision,
+      );
+    }
     await page
       .locator('.editable-span')
       .filter({ hasText: /^needle$/ })
       .waitFor();
   }
-  await page.getByLabel('Find text', { exact: true }).fill('Cross-run needle');
-  await page.getByRole('button', { name: 'Find', exact: true }).click();
-  await page.locator('.matches').getByText('1 matches · 0 protected').waitFor();
-  await page.locator('.matches button').click();
-  assert.equal(await page.getByLabel('Text content').inputValue(), 'Cross-run ');
-  await page.getByLabel('Replace with', { exact: true }).fill('Joined text');
-  await page.getByRole('button', { name: 'Preview replacement' }).click();
-  await page.getByLabel('Change preview').waitFor();
-  assert.equal(await page.locator('.diff').count(), 2);
-  await page.getByRole('button', { name: 'Apply transaction' }).click();
-  await page.locator('.editable-span').filter({ hasText: 'Joined text' }).waitFor();
-  await page.getByRole('button', { name: 'Undo', exact: true }).click();
-  await page.locator('.editable-span').filter({ hasText: 'needle' }).waitFor();
-  await page.getByRole('button', { name: 'Redo', exact: true }).click();
-  await page.locator('.editable-span').filter({ hasText: 'Joined text' }).waitFor();
-  // Inline drafts stay outside the package until preview/commit, including empty runs.
-  await page.locator('.editable-span').filter({ hasText: 'Joined text' }).dblclick();
-  const inlineInput = page.getByRole('textbox', { name: 'Inline text', exact: true });
-  await inlineInput.fill('Draft café 👩‍💻');
-  await page.screenshot({ path: join(output, 'inline-draft.png'), fullPage: true });
-  await inlineInput.press('End');
-  await inlineInput.press('Backspace');
-  assert.equal(await inlineInput.inputValue(), 'Draft café ');
-  await inlineInput.press('Backspace');
-  await inlineInput.pressSequentially('!');
-  await page.getByRole('button', { name: 'Preview inline edit' }).click();
-  await page.getByLabel('Change preview').waitFor();
-  assert.equal(await page.locator('.diff ins').textContent(), 'Draft café!');
-  await inlineInput.fill('Draft revised');
-  assert.equal(
-    await page.getByLabel('Change preview').count(),
-    0,
-    'Typing expires the old preview',
-  );
-  await inlineInput.evaluate((input) => {
-    input.setSelectionRange(2, 5);
-    input.dispatchEvent(new Event('select', { bubbles: true }));
-  });
-  await page.getByLabel('Reveal codes', { exact: true }).uncheck();
-  assert.equal(await inlineInput.inputValue(), 'Draft revised');
-  await page.waitForFunction(() => {
-    const input = document.querySelector('.inline-text');
-    return input?.selectionStart === 2 && input?.selectionEnd === 5;
-  });
-  assert.deepEqual(
-    await inlineInput.evaluate((input) => [input.selectionStart, input.selectionEnd]),
-    [2, 5],
-  );
-  await page.getByRole('button', { name: 'Cancel inline edit' }).click();
-  await page.locator('.editable-span').filter({ hasText: 'Joined text' }).waitFor();
-  // A saved cross-run replacement left the second source span empty.
-  const emptySpan = page
-    .locator('.editable-span')
-    .filter({ hasText: /^\u200b$/ })
-    .first();
-  await emptySpan.dblclick();
-  assert.equal(await inlineInput.inputValue(), 'Joined text');
-  await inlineInput.pressSequentially('Inline ');
-  await inlineInput.evaluate((input) => {
-    input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
-    input.value = 'Joined textInline café';
-    input.dispatchEvent(
-      new InputEvent('input', {
-        bubbles: true,
-        inputType: 'insertCompositionText',
-        isComposing: true,
-      }),
-    );
-    input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: 'é' }));
-  });
-  await inlineInput.press('End');
-  await inlineInput.evaluate((input) => {
-    const clipboardData = new DataTransfer();
-    clipboardData.setData('text/plain', 'bad\nline');
-    const event = new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true });
-    input.dispatchEvent(event);
-    if (!event.defaultPrevented) throw new Error('Multiline paste was not refused');
-  });
-  await inlineInput.press('Enter');
-  assert.equal(await inlineInput.inputValue(), 'Joined textInline café');
-  await page.getByRole('button', { name: 'Preview inline edit' }).click();
-  await page.getByRole('button', { name: 'Apply transaction' }).click();
-  await page.locator('.editable-span').filter({ hasText: 'Inline café' }).waitFor();
-  await page.getByRole('button', { name: 'Undo', exact: true }).click();
-  await emptySpan.waitFor();
-  await page.getByRole('button', { name: 'Redo', exact: true }).click();
-  await page.locator('.editable-span').filter({ hasText: 'Inline café' }).waitFor();
-  const inlinePath = join(output, 'inline-edited.docx');
-  await app.evaluate(({ dialog }, path) => {
-    dialog.showSaveDialog = async () => ({ canceled: false, filePath: path });
-  }, inlinePath);
-  await page.getByRole('button', { name: 'Save As…' }).click();
-  await page.waitForFunction(() =>
-    document.querySelector('footer')?.textContent.includes('Saved and verified'),
-  );
-  const savedInline = unzipSync(await readFile(inlinePath));
-  assert.match(
-    strFromU8(savedInline['word/document.xml']),
-    /<w:rPr><w:b\/><\/w:rPr><w:t[^>]*>Inline café<\/w:t>/,
-  );
-  for (const [part, bytes] of Object.entries(crossRunParts)) {
-    if (part !== 'word/document.xml') assert.deepEqual(savedInline[part], bytes, part);
+  // End-of-document input must address the final source paragraph, not a phantom line.
+  for (const codes of [false, true]) {
+    await page.getByLabel('Reveal codes', { exact: true }).setChecked(codes);
+    for (const backward of [true, false]) {
+      await page.locator('.cm-content').first().press('Control+End');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(async () => {
+        const doc = (await window.ritr.snapshot()).documents.find(
+          (d) => d.name === 'cross-run.docx',
+        );
+        return doc.model.stories[0].paragraphs.length === 5;
+      });
+      await page.waitForFunction(() => document.querySelectorAll('.paragraph-line').length === 5);
+      if (!backward) {
+        await page
+          .locator('.editable-span')
+          .filter({ hasText: /^ Plain preview$/ })
+          .evaluate((span) => {
+            const range = document.createRange();
+            range.selectNodeContents(span);
+            range.collapse(false);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            document.dispatchEvent(new Event('selectionchange'));
+          });
+        await page.waitForTimeout(100);
+      }
+      await page.keyboard.press(backward ? 'Backspace' : 'Delete');
+      await page.waitForFunction(async () => {
+        const doc = (await window.ritr.snapshot()).documents.find(
+          (d) => d.name === 'cross-run.docx',
+        );
+        return doc.model.stories[0].paragraphs.length === 4;
+      });
+      await page.waitForFunction(() => document.querySelectorAll('.paragraph-line').length === 4);
+      assert.ok(
+        !(await page.locator('footer').textContent()).includes('Select text inside a paragraph'),
+      );
+    }
   }
-  await page.getByRole('button', { name: /tables.docx/ }).click();
-  await page.locator('.editable-span').filter({ hasText: 'Signed confirmation' }).dblclick();
-  await inlineInput.fill('Inline cell');
-  await page.getByRole('button', { name: 'Preview inline edit' }).click();
-  await page.getByRole('button', { name: 'Apply transaction' }).click();
-  await page.locator('.document-table .editable-span').filter({ hasText: 'Inline cell' }).waitFor();
+  // Paste may contain paragraph breaks; Unicode deletion remains grapheme-aware.
+  await page.getByLabel('Reveal codes', { exact: true }).uncheck();
+  const nativeEditor = page.locator('.cm-content').first();
+  await nativeEditor.press('Control+Home');
+  await page.keyboard.insertText('café 👩‍💻');
+  await page
+    .locator('.editable-span')
+    .filter({ hasText: /^café 👩‍💻Cross-run $/ })
+    .waitFor();
+  await page.keyboard.press('Backspace');
+  await page
+    .locator('.editable-span')
+    .filter({ hasText: /^café Cross-run $/ })
+    .waitFor();
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
-  await page.locator('.editable-span').filter({ hasText: 'Signed confirmation' }).waitFor();
-  await page.getByLabel('Reveal codes', { exact: true }).check();
-  await page.locator('.editable-span').filter({ hasText: 'Signed confirmation' }).dblclick();
-  await inlineInput.fill('Stale draft');
-  await page.evaluate(async () => {
+  await page
+    .locator('.editable-span')
+    .filter({ hasText: /^café 👩‍💻Cross-run $/ })
+    .waitFor();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await page
+    .locator('.editable-span')
+    .filter({ hasText: /^Cross-run $/ })
+    .waitFor();
+  await nativeEditor.press('Control+Home');
+  await nativeEditor.evaluate((editor) =>
+    editor.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true })),
+  );
+  await page.keyboard.insertText('é');
+  await page.waitForTimeout(50);
+  assert.equal(await page.getByRole('button', { name: 'Save As…' }).isDisabled(), true);
+  assert.equal(
+    await page.evaluate(
+      async () =>
+        (await window.ritr.snapshot()).documents
+          .find((d) => d.name === 'cross-run.docx')
+          .model.stories[0].tokens.find((t) => t.kind === 'text').span.text,
+    ),
+    'Cross-run ',
+  );
+  await nativeEditor.evaluate((editor) =>
+    editor.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: 'é' })),
+  );
+  await page
+    .locator('.editable-span')
+    .filter({ hasText: /^éCross-run $/ })
+    .waitFor();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await page
+    .locator('.editable-span')
+    .filter({ hasText: /^Cross-run $/ })
+    .waitFor();
+  await page.screenshot({ path: join(output, 'direct-editing.png'), fullPage: true });
+  // Edits inside ordinary table cells use the same native editor.
+  await page.getByRole('button', { name: /tables.docx/ }).click();
+  const cell = page.locator('.editable-span').filter({ hasText: 'Signed confirmation' });
+  const tableParagraphs = await page.evaluate(
+    async () =>
+      (await window.ritr.snapshot()).documents.find((d) => d.name === 'tables.docx').model
+        .stories[0].paragraphs.length,
+  );
+  await cell.click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(async (count) => {
     const snapshot = await window.ritr.snapshot();
     const doc = snapshot.documents.find((d) => d.name === 'tables.docx');
-    const token = doc.model.stories
-      .flatMap((s) => s.tokens)
-      .find((t) => t.kind === 'text' && t.span.text === 'Signed confirmation');
-    const preview = await window.ritr.previewEdit({
-      documentId: doc.id,
-      spanId: token.span.id,
-      from: 0,
-      to: token.span.text.length,
-      text: 'External edit',
-    });
-    await window.ritr.commit(preview.id);
-  });
-  await page.getByRole('button', { name: 'Preview inline edit' }).click();
-  await page.waitForFunction(() =>
-    document.querySelector('footer')?.textContent.includes('Inline draft is stale'),
-  );
-  assert.equal(await page.getByLabel('Change preview').count(), 0);
-  await page.getByRole('button', { name: 'Cancel inline edit' }).click();
+    return doc.model.stories[0].paragraphs.length === count + 1;
+  }, tableParagraphs);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
-  await page.screenshot({ path: join(output, 'inline-editing.png'), fullPage: true });
-  await page.getByRole('button', { name: /cross-run.docx/ }).click();
-  await page.getByLabel('Reveal codes', { exact: true }).uncheck();
-  const joinedSpan = page.locator('.editable-span').filter({ hasText: 'Joined text' });
-  await joinedSpan.click();
-  await page.keyboard.press('x');
-  await inlineInput.waitFor();
-  assert.ok((await inlineInput.inputValue()).includes('x'));
-  await inlineInput.press('Escape');
-  await joinedSpan.waitFor();
-  await joinedSpan.click();
-  await page.keyboard.press('Delete');
-  await inlineInput.waitFor();
-  assert.equal((await inlineInput.inputValue()).length, 'Joined textInline café'.length - 1);
-  await inlineInput.press('Escape');
-  await joinedSpan.click();
-  await joinedSpan.evaluate((span) => {
-    const clipboardData = new DataTransfer();
-    clipboardData.setData('text/plain', 'Pasted café');
-    span.dispatchEvent(
-      new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }),
-    );
-  });
-  await inlineInput.waitFor();
-  assert.ok((await inlineInput.inputValue()).includes('Pasted café'));
-  await inlineInput.press('Escape');
-  // A selection across paragraph boundaries remains protected even with codes hidden.
-  const editorContent = page.locator('.cm-content').first();
-  await editorContent.press('Control+Home');
-  await editorContent.press('Control+Shift+End');
-  await editorContent.press('x');
-  assert.equal(await inlineInput.count(), 0);
+  await cell.waitFor();
   await page.getByRole('button', { name: /review.docx/ }).click();
-  await page.locator('.protected-span').first().dblclick();
-  assert.equal(await inlineInput.count(), 0);
-  await page.keyboard.press('Control+Shift+P');
-  await searchCommands.fill('selection inline');
-  assert.equal(await palette.getByRole('option').getAttribute('aria-disabled'), 'true');
-  await page.screenshot({ path: join(output, 'commands-protected.png'), fullPage: true });
-  await searchCommands.press('Escape');
-  await page.getByRole('button', { name: /cross-run.docx/ }).click();
-  await joinedSpan.click();
-  await page.keyboard.press('Control+Shift+P');
-  await searchCommands.fill('selection inline');
-  await searchCommands.press('Enter');
-  await inlineInput.waitFor();
-  await inlineInput.fill('Command draft');
-  await inlineInput.evaluate((input) => input.setSelectionRange(2, 5));
-  await page.keyboard.press('Control+Shift+P');
-  await searchCommands.fill('Save As');
-  assert.ok(
-    (await palette.getByRole('option').textContent()).includes(
-      'Apply or cancel the inline draft first.',
-    ),
+  const protectedText = page.locator('.protected-span').first();
+  const before = await protectedText.textContent();
+  await protectedText.click();
+  await page.keyboard.press('x');
+  await page.waitForFunction(
+    () =>
+      document.querySelector('footer')?.textContent.includes('preserved') ||
+      document.querySelector('footer')?.textContent.includes('protected'),
   );
-  await searchCommands.press('Escape');
-  assert.equal(await inlineInput.inputValue(), 'Command draft');
-  assert.deepEqual(
-    await inlineInput.evaluate((input) => [
-      input === document.activeElement,
-      input.selectionStart,
-      input.selectionEnd,
-    ]),
-    [true, 2, 5],
-  );
-  // Native text undo must never undo a committed workspace transaction.
-  const beforeNativeUndo = await page.evaluate(() => window.ritr.snapshot());
-  await inlineInput.press('End');
-  await inlineInput.pressSequentially('!');
-  await inlineInput.press('Control+z');
-  assert.deepEqual(await page.evaluate(() => window.ritr.snapshot()), beforeNativeUndo);
-  await inlineInput.fill('Command draft');
-  await inlineInput.press('Control+Enter');
-  await page.getByLabel('Change preview').waitFor();
-  await page.keyboard.press('Control+Shift+Enter');
-  await page.locator('.editable-span').filter({ hasText: 'Command draft' }).waitFor();
-  await page.keyboard.press('Control+z');
-  await joinedSpan.waitFor();
-  await page.keyboard.press('Control+Shift+z');
-  await page.locator('.editable-span').filter({ hasText: 'Command draft' }).waitFor();
-  await page.keyboard.press('Control+f');
-  assert.equal(
-    await page
-      .getByLabel('Find text', { exact: true })
-      .evaluate((input) => input === document.activeElement),
-    true,
-  );
-  await page.keyboard.press('Control+Shift+P');
-  await searchCommands.fill('compare package');
-  await searchCommands.press('Enter');
-  await page.locator('.part-report').waitFor();
-  await page.keyboard.press('Control+Shift+P');
-  await searchCommands.press('ArrowDown');
-  assert.equal(await searchCommands.getAttribute('aria-activedescendant'), 'command-file.saveAs');
-  await page.screenshot({ path: join(output, 'commands.png'), fullPage: true });
-  await searchCommands.press('Escape');
+  assert.equal(await protectedText.textContent(), before);
   assert.deepEqual(errors, []);
   console.log(
-    `Desktop smoke passed: command palette, persisted remapping, availability and focus, cross-run inline editing and formatting, Unicode drafts, stale/boundary refusal, preview, cross-run replacement, undo/redo, Save As, code inspection, lists and merged/nested tables. Artifacts: ${output}`,
+    `Desktop smoke passed: command palette, persisted remapping, availability and focus, native inline editing, queued typing, paragraph split/join, formatting, protected-boundary refusal, inspector preview, undo/redo, Save As, code inspection, lists and merged/nested tables. Artifacts: ${output}`,
   );
 } catch (error) {
   console.error(error);

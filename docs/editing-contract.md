@@ -18,7 +18,7 @@ This describes implemented behavior, not the entire architecture roadmap.
   complete range, and returns a source-bound caret. `previewPieces` validates a
   draft's ordered source spans and revision before staging its changed pieces.
 - Empty results keep the existing text element. Existing empty text elements
-  are editable; an empty paragraph without a text element cannot yet receive text.
+  are editable; ordinary empty paragraphs can receive text through the direct editor.
 - Surrogate pairs cannot be split. Grapheme clusters are not treated as atomic
   by the engine; use full-grapheme ranges when implementing direct typing.
 - Tabs, line breaks, invalid XML characters, overlapping ranges, and stale
@@ -40,32 +40,66 @@ This describes implemented behavior, not the entire architecture roadmap.
   protected spans throw an error.
 - Workspace commit and undo/redo affect every staged document together.
 
-## Inline drafts
+## Direct inline editing and paragraph commands
 
-Typing or pasting at a text selection, double-clicking text, or pressing Enter
-opens a native text field for its contiguous editable segment. The segment spans
-formatting boundaries but stops at structural, review, opaque, or protected content.
-Empty text elements are selectable; an empty paragraph without a text element is
-still unsupported. Double-clicking an empty element explicitly chooses its format.
+The CodeMirror document is editable in place. Text input no longer opens a separate
+textarea and does not require Preview/Apply. Each native input operation is staged,
+validated, and committed as one workspace transaction. Inspector and workspace
+replacement commands retain their explicit preview/commit workflow.
 
-The field displays plain text, while the draft retains one text piece per source
-span. Each input updates only the affected pieces. Unchanged text keeps its
-formatting through repeated insertions, deletions, replacements, and composition.
-Identical replacements leave the original formatting distribution intact.
+The projection contains source text and separators between paragraphs, with no
+phantom line after the final paragraph. Formatting, list labels, bookmark/comment
+range and proofing markers, and the final section-properties code are widgets
+without text offsets; other document objects occupy protected
+slots. Showing/hiding codes never changes editable offsets. A serialized input queue
+preserves fast typing while engine snapshots catch up. Failed input restores the
+last confirmed snapshot and discards queued dependent input. Navigation and Save As
+wait for pending input. Protected text and object edits are also refused locally.
 
-The draft stays local until **Preview inline edit** and **Apply transaction**.
-Cancel or Escape restores the initial source selection and discards the draft.
-Editing dismisses its previous preview. Navigation and Save As wait for apply or
-cancel. Workspace undo/redo clears the draft; draft undo/redo restores both text
-and formatting pieces, including across code-visibility changes. Applying a draft
-adds one workspace transaction. Stale source revisions are refused.
+Enter (`paragraph.split`) splits at the caret; Backspace at paragraph start or
+Delete at paragraph end joins neighboring paragraphs. Selection replacement and
+plain-text paste may span ordinary paragraphs or introduce multiple paragraphs.
+One such replacement/paste is one atomic undo entry. Unicode deletion consumes whole
+graphemes across run boundaries. Tabs, embedded objects, and invalid XML text remain
+unsupported input. Composition is committed when composition ends; automated coverage
+uses synthetic composition events and native text input, not an operating-system IME.
 
-The field supports composition and plain-text paste. Backspace/Delete expand to
-whole graphemes across runs, including combining sequences and ZWJ emoji. Tabs,
-line breaks, object placeholders, and invalid XML text are refused. Deletion at a
-segment edge stops there. Apply restores the resulting source caret, including
-its typing-run ownership. No-edit code toggles preserve source selections.
-Closing the window with a draft offers to keep editing.
+Structural edits work on paragraphs containing direct runs, text, and supported
+markers and run objects within one body, header/footer, note, or table cell.
+Bookmarks, comment range and proofing markers, tabs, breaks, drawings, and note
+references retain their XML, identities, and order on their source side of a split.
+Hidden range markers add no phantom caret positions. A boundary split uses the
+selected text span to determine its side of a marker or object. Section properties,
+revisions, fields, unsupported wrappers, and protected text still prevent restructuring;
+refusals name the unsupported element. Text replacements across anchors remain refused.
+Joins require adjacent sibling paragraphs and never cross cells. Paragraph-local
+namespace declarations on the removed paragraph are conservatively refused.
+
+Splitting retains the original paragraph identity on the left. At run boundaries,
+whole runs move to the appropriate paragraph with their XML and identities intact.
+Only a split inside a run creates a second run; its surviving original text keeps
+its identity. Empty half-runs/text elements are not generated. Unchanged following
+runs keep their identities. The new paragraph copies the existing paragraph settings,
+including style and numbering; it does not apply a style's `next` rule or exit a list.
+The split run's formatting is copied to its new half. New paragraph wrappers do not
+duplicate source paragraph IDs or unrelated attributes.
+
+Joining retains the first paragraph's settings and removes the second paragraph's
+settings. Surviving run XML and identities remain intact. Consequently, inherited
+formatting from a different second paragraph style follows the first paragraph after
+a join; direct run formatting remains unchanged. Unknown package parts are untouched.
+
+New empty split paragraphs carry typing formatting in paragraph-mark properties,
+without a placeholder run. Existing source empty runs remain preserved.
+Ordinary empty paragraphs are editable. Existing empty run formatting is reused;
+otherwise paragraph-mark run properties supply the initial typing format. Deletion
+retains the first selected run's typing format for subsequent input at the same caret.
+Undo/redo restores package snapshots, source identities, and the logical selection
+for direct edits. History currently records each native input transaction separately,
+without word-level typing coalescing. Escape does not discard already committed input.
+
+Reveal Codes orders tags at the same text offset in source order, so adjacent runs
+appear as siblings rather than as nested opening and closing tags.
 
 ## Source identity
 
@@ -80,25 +114,24 @@ Identity tables are restored with package snapshots during undo/redo. No identit
 metadata is written into DOCX files; reopening starts a new identity session.
 Raw whole-part XML replacement retires that part's IDs instead of guessing node
 continuity. These are package-layer capabilities, not permission to edit arbitrary
-document structure. Paragraph split/join and caret mapping across those operations
-remain unimplemented in the engine and desktop.
+document structure. The bounded paragraph commands above use this identity-aware
+path and keep their selection mapping with each undo transaction.
 
 ## GUI commands
 
 The Commands button and Ctrl+Shift+P open a searchable modal palette. Existing
-open/save, workspace history, inline/inspector preview, apply/dismiss, search,
+open/save, workspace history, inspector preview, apply/dismiss, search,
 replacement, code visibility, and package comparison actions share typed command
 IDs and availability checks with their buttons and shortcuts. Unavailable actions
-explain the missing document, editable selection, draft, query, or preview.
+explain the missing document, editable selection, query, or preview.
 Checks run again at invocation; busy operations cannot be invoked twice.
 
-Ctrl+Enter previews the current text draft. Ctrl+Shift+Enter applies the displayed
-preview. Changing an inline or inspector draft dismisses its old preview. The
+Ctrl+Enter previews the inspector text edit. Ctrl+Shift+Enter applies the displayed
+preview. Changing an inspector draft or typing directly dismisses its old preview. The
 palette does not bypass preview/commit, protected-content policy, or stale-revision
 checks. Ctrl+Z and redo shortcuts operate on workspace history in the projection;
-inside ordinary text fields they remain native text undo/redo; inline drafts have
-format-preserving local history. Escape closes the palette
-and returns focus without cancelling an underlying inline draft.
+inside ordinary text fields they remain native text undo/redo. Escape closes the
+palette and returns focus to the document.
 
 Key chords live in `src/ui/keymap.ts`, independently of command definitions and
 actions. The active map drives matching, palette shortcut labels, tooltips, and
@@ -106,8 +139,8 @@ accessibility hints. **Keybindings** in the sidebar accepts a JSON object mappin
 command IDs to chord arrays; `[]` unbinds a command and `{}` restores defaults.
 Overrides persist locally and apply immediately. Custom bindings replace conflicting
 defaults; ambiguous custom bindings and malformed configuration are refused.
-Workspace history bindings defer to text fields. Draft history and editor actions
-have their own focus scopes. IME composition bypasses shortcut matching.
+Workspace history bindings defer to ordinary text fields. Editor actions have
+their own focus scope. IME composition bypasses shortcut matching.
 
 Example:
 
@@ -119,10 +152,10 @@ Example:
 }
 ```
 
-Editor command IDs are `text.edit`, `text.cancel`, `text.deleteBackward`,
-`text.deleteForward`, `text.undo`, and `text.redo`. Chords support Ctrl/Mod
-(either Control or Meta), Meta, Alt, and Shift. These are simultaneous chords;
-sequential bindings such as Ctrl+K then Ctrl+C are not implemented.
+Editor command IDs are `paragraph.split`, `text.deleteBackward`, and
+`text.deleteForward`. The earlier `text.edit` and draft-history IDs are retired.
+Chords support Ctrl/Mod (either Control or Meta), Meta, Alt, and Shift. These are
+simultaneous chords; sequential bindings such as Ctrl+K then Ctrl+C are not implemented.
 
 ## Protected content
 
@@ -153,8 +186,7 @@ use their stored RGB fallback when present; theme tint/shade resolution is not
 implemented. Highlighting supports all 16 named colors and `none`, independently
 of run shading (`w:shd`). Underline variants use the nearest CSS line style;
 word-only, heavy, and compound variants are approximate. Font families and sizes
-from the document are intentionally ignored. The native inline draft field remains
-plain text; applying the draft restores the formatted projection.
+from the document are intentionally ignored. Native inline editing keeps the formatted projection in place.
 
 The palette follows [OOXML HighlightColorValues](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.highlightcolorvalues?view=openxml-3.0.1).
 This is display support; formatting mutation commands remain future work.
@@ -214,7 +246,7 @@ preserved but never fetched. This is not full OPC/OOXML schema validation.
 
 ## Not implemented yet
 
-Paragraph split/join; direct formatting changes; list,
+Unrestricted paragraph restructuring; direct formatting changes; list,
 table, hyperlink, and section restructuring; full style/layout resolution and
 exotic numbering formats;
 comment or revision mutation; granular code-category filters;

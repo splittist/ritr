@@ -1,4 +1,5 @@
-import { resolveTextRange, positionAt, type TextPosition } from '../engine/text-range';
+import type { ProjectionEdit } from '../engine/projection';
+import type { DirectEditing } from './direct-edit';
 import { commandShortcuts, shortcutCommand, resolveKeymap } from './keymap';
 import { useEffect, useRef, useState } from 'react';
 import type { DesktopApi, Snapshot } from '../desktop/protocol';
@@ -6,13 +7,6 @@ import type { ChangePreview, SearchMatch } from '../engine/workspace';
 import type { Token } from '../engine/document';
 import type { PartDifference } from '../package/docx';
 import { StoryView } from './StoryView';
-import {
-  editDraft,
-  deletionRange,
-  validInlineText,
-  type InlineDraft,
-  type InlineEditing,
-} from './inline-edit';
 import { CommandPalette, captureCommandFocus } from './CommandPalette';
 import {
   commands,
@@ -39,10 +33,6 @@ export function App() {
     }
   });
   const [keymapText, setKeymapText] = useState(() => localStorage.getItem('ritr.keymap') ?? '{}');
-  const [rangeSelection, setRangeSelection] = useState<{
-    anchor: TextPosition;
-    head: TextPosition;
-  }>();
   const [state, setState] = useState(empty);
   const [documentId, setDocumentId] = useState('');
   const [storyId, setStoryId] = useState('');
@@ -58,13 +48,13 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('Open a DOCX to explore its text and structure.');
   const [error, setError] = useState('');
-  const [inlineDraft, setInlineDraft] = useState<InlineDraft & { revision: number }>();
-  const [restore, setRestore] = useState<InlineEditing['restore']>();
+  const [pending, setPending] = useState(false);
+  const [composing, setComposing] = useState(false);
+  const [focus, setFocus] = useState<DirectEditing['focus']>();
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const draftHistory = useRef<{ past: InlineDraft[]; future: InlineDraft[] }>({
-    past: [],
-    future: [],
-  });
+  const latest = useRef(state);
+  const queue = useRef<ProjectionEdit[]>([]);
+  const draining = useRef(false);
   const paletteFocus = useRef<() => void>(() => {});
   const running = useRef(false);
   const searchInput = useRef<HTMLInputElement>(null);
@@ -86,135 +76,107 @@ export function App() {
     }
   }
   function refresh(snapshot: Snapshot) {
-    if (inlineDraft) setMessage('Inline draft cleared because the workspace changed.');
-    setInlineDraft(undefined);
-    setRestore(undefined);
+    latest.current = snapshot;
+    setFocus(undefined);
     setState(snapshot);
     setPreview(undefined);
     setMatches(undefined);
     setSelected(undefined);
-    setRangeSelection(undefined);
     setReport(undefined);
   }
   function select(token?: Token) {
-    setRangeSelection(undefined);
     setSelected(token);
     setDraft(token?.kind === 'text' ? token.span.text : '');
   }
-  const inline: InlineEditing = {
-    history: draftHistory.current,
-    busy,
-    draft: inlineDraft,
-    restore,
-    message: setError,
+  const inline: DirectEditing = {
+    get busy() {
+      return busy || running.current;
+    },
+    composition: setComposing,
+    pending,
+    restore:
+      state.selection?.documentId === document?.id && state.selection?.storyId === story?.id
+        ? state.selection
+        : undefined,
     keymap,
-    selectRange: (anchor, head) => setRangeSelection(anchor && head ? { anchor, head } : undefined),
-    start: (initialAnchor, initialHead, insert, backward) => {
-      if (busy || !document || !story) return;
-      if (inlineDraft) {
-        setError('Apply or cancel the current inline draft first.');
-        return;
-      }
-      try {
-        const range = resolveTextRange(story, initialAnchor, initialHead);
-        if (range.segment.spans.some((s) => !s.editable))
-          throw new Error('This text segment contains protected text.');
-        let value: InlineDraft = {
-          spanId: range.pieces[0]!.spanId,
-          pieces: range.pieces,
-          original: range.pieces,
-          text: range.segment.text,
-          anchor: range.from,
-          head: range.to,
-          typing: initialAnchor,
-          initialAnchor,
-          initialHead,
-        };
-        const originalDraft = value;
-        if (backward !== undefined) {
-          const deletion = deletionRange(value.text, range.from, range.to, backward);
-          if (deletion.from === deletion.to)
-            throw new Error('This edit stops at a structural boundary.');
-          value = editDraft(value, deletion.from, deletion.to, '');
-        } else if (insert !== undefined) value = editDraft(value, range.from, range.to, insert);
-        if (!validInlineText(value.text)) throw new Error('This text cannot be edited inline.');
-        setPreview(undefined);
-        setRestore(undefined);
-        setError('');
-        draftHistory.current.past.length = 0;
-        draftHistory.current.future.length = 0;
-        if (value.pieces.some((p, i) => p.text !== originalDraft.pieces[i]?.text))
-          draftHistory.current.past.push(originalDraft);
-        setInlineDraft({ ...value, revision: document.revision });
-      } catch (e) {
-        setError(String(e).replace(/^Error: /, ''));
-      }
+    focus,
+    message: setError,
+    change: (edit) => {
+      if (!document || !story || busy || running.current) return;
+      queue.current.push({
+        ...edit,
+        documentId: document.id,
+        storyId: story.id,
+        expectedRevision: 0,
+      });
+      setPreview(undefined);
+      setMatches(undefined);
+      setReport(undefined);
+      setError('');
+      setPending(true);
+      if (draining.current) return;
+      draining.current = true;
+      void (async () => {
+        try {
+          while (queue.current.length) {
+            const next = queue.current.shift()!;
+            const revision = latest.current.documents.find(
+              (d) => d.id === next.documentId,
+            )?.revision;
+            if (revision === undefined) throw new Error('The editing document is no longer open');
+            latest.current = await api!.editProjection({ ...next, expectedRevision: revision });
+          }
+          setMessage('Text updated. Undo reverses the last edit.');
+        } catch (e) {
+          queue.current.length = 0;
+          setError(String(e).replace(/^Error: /, ''));
+          try {
+            latest.current = await api!.snapshot();
+          } catch {
+            /* retain the last confirmed snapshot */
+          }
+        } finally {
+          setState(latest.current);
+          setSelected(undefined);
+          draining.current = false;
+          setPending(false);
+        }
+      })();
     },
-    change: (value) => {
-      if (inlineDraft && !busy) {
-        if (
-          value.text !== inlineDraft.text ||
-          value.pieces.some((p, i) => p.text !== inlineDraft.pieces[i]?.text)
-        )
-          setPreview(undefined);
-        setInlineDraft({ ...value, revision: inlineDraft.revision });
-      }
-    },
-    cancel: () => execute('edit.cancelInline'),
   };
   useEffect(() => {
-    if (!inlineDraft) return;
+    if (!pending && !composing) return;
     const preventClose = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = '';
     };
     window.addEventListener('beforeunload', preventClose);
     return () => window.removeEventListener('beforeunload', preventClose);
-  }, [!!inlineDraft]);
+  }, [pending, composing]);
   useEffect(() => {
     if (api)
       void run(async () => {
-        setState(await api.snapshot());
+        refresh(await api.snapshot());
       });
   }, []);
-  const rangeReason = (() => {
-    if (!rangeSelection || !story) return undefined;
-    try {
-      resolveTextRange(story, rangeSelection.anchor, rangeSelection.head);
-      return '';
-    } catch (e) {
-      return String(e).replace(/^Error: /, '');
-    }
-  })();
   const selectionReason =
-    rangeReason !== undefined
-      ? rangeReason || undefined
-      : selected?.kind !== 'text'
-        ? 'Select an editable text span.'
-        : !selected.span.editable
-          ? (selected.span.reason ?? 'This text is protected.')
-          : undefined;
-  const inlineToken = story?.tokens.find(
-    (t) => t.kind === 'text' && t.span.id === inlineDraft?.spanId,
-  );
+    selected?.kind !== 'text'
+      ? 'Select editable document text.'
+      : !selected.span.editable
+        ? (selected.span.reason ?? 'This text is protected.')
+        : undefined;
   const context: CommandContext = {
     connected: !!api,
-    busy,
+    busy: busy || pending || composing,
     hasDocument: !!document,
     canUndo: state.canUndo,
     canRedo: state.canRedo,
-    hasInlineDraft: !!inlineDraft,
     selectionReason,
-    editReason: inlineDraft
-      ? inlineToken?.kind !== 'text'
-        ? 'The draft span is no longer available.'
-        : inlineDraft.pieces.every((p, i) => p.text === inlineDraft.original[i]?.text)
-          ? 'The draft has no changes.'
-          : undefined
-      : (selectionReason ??
-        (selected?.kind === 'text' && draft === selected.span.text
-          ? 'Edit the selected span first.'
-          : undefined)),
+    editReason:
+      selectionReason ??
+      (selected?.kind === 'text' && draft === selected.span.text
+        ? 'Edit the selected span first.'
+        : undefined),
     hasQuery: !!query,
     hasPreview: !!preview,
     hasChanges: !!preview?.edits.length,
@@ -237,24 +199,10 @@ export function App() {
     'history.undo': async () => refresh(await api!.undo()),
     'history.redo': async () => refresh(await api!.redo()),
     'edit.inline': () => {
-      if (rangeSelection) inline.start(rangeSelection.anchor, rangeSelection.head);
-      else if (selected?.kind === 'text')
-        inline.start(
-          { spanId: selected.span.id, offset: 0 },
-          { spanId: selected.span.id, offset: selected.span.text.length },
-        );
+      if (selected?.kind === 'text') setFocus({ spanId: selected.span.id });
     },
     'edit.preview': async () => {
-      if (inlineDraft && inlineToken?.kind === 'text') {
-        setPreview(
-          await api!.previewPieces({
-            documentId: document!.id,
-            storyId: story!.id,
-            pieces: inlineDraft.pieces,
-            expectedRevision: inlineDraft.revision,
-          }),
-        );
-      } else if (selected?.kind === 'text') {
+      if (selected?.kind === 'text')
         setPreview(
           await api!.previewEdit({
             documentId: document!.id,
@@ -265,16 +213,6 @@ export function App() {
             expectedRevision: document!.revision,
           }),
         );
-      }
-    },
-    'edit.cancelInline': () => {
-      if (inlineDraft)
-        setRestore({
-          anchor: inlineDraft.initialAnchor,
-          head: inlineDraft.initialHead,
-        });
-      setInlineDraft(undefined);
-      setPreview(undefined);
     },
     'search.focus': () => {
       searchInput.current?.focus();
@@ -288,16 +226,6 @@ export function App() {
       setPreview(await api!.previewReplace(query, replacement, caseSensitive)),
     'transaction.apply': async () => {
       refresh(await api!.commit(preview!.id));
-      if (inlineDraft)
-        setRestore({
-          anchor: positionAt(
-            inlineDraft.pieces,
-            inlineDraft.anchor,
-            'left',
-            inlineDraft.typing.spanId,
-          ),
-          head: positionAt(inlineDraft.pieces, inlineDraft.head, 'left', inlineDraft.typing.spanId),
-        });
       setMessage('Transaction applied. Undo reverses the complete change.');
     },
     'transaction.dismiss': () => setPreview(undefined),
@@ -387,13 +315,12 @@ export function App() {
             {state.documents.map((d) => (
               <button
                 key={d.id}
-                disabled={!!inlineDraft}
+                disabled={pending || composing}
                 className={`document-link ${document?.id === d.id ? 'active' : ''}`}
                 onClick={() => {
                   setDocumentId(d.id);
-                  setRestore(undefined);
+                  setFocus(undefined);
                   setStoryId('');
-                  setRangeSelection(undefined);
                   setSelected(undefined);
                   setReport(undefined);
                 }}
@@ -414,12 +341,11 @@ export function App() {
                 {document.model.stories.map((s) => (
                   <button
                     key={s.id}
-                    disabled={!!inlineDraft}
+                    disabled={pending || composing}
                     className={`story-link ${story?.id === s.id ? 'active' : ''}`}
                     onClick={() => {
                       setStoryId(s.id);
-                      setRangeSelection(undefined);
-                      setRestore(undefined);
+                      setFocus(undefined);
                       setSelected(undefined);
                     }}
                   >
@@ -484,17 +410,17 @@ export function App() {
             <>
               <div className="editor-caption">
                 <span>
-                  Type in a span, or double-click to edit inline. Click a code to inspect it.
+                  Type directly in the document. Enter splits a paragraph; Backspace/Delete joins at
+                  an edge.
                 </span>
-                <span>{document?.dirty ? 'Unsaved changes' : 'Saved snapshot'}</span>
+                <span>
+                  {pending
+                    ? 'Applying input…'
+                    : document?.dirty
+                      ? 'Unsaved changes'
+                      : 'Saved snapshot'}
+                </span>
               </div>
-              {inlineDraft && (
-                <div className="inline-toolbar" aria-label="Inline draft">
-                  <span>Inline draft · formatting preserved · not yet applied</span>
-                  <button {...commandProps('edit.preview')}>Preview inline edit</button>
-                  <button {...commandProps('edit.cancelInline')} />
-                </div>
-              )}
               <StoryView story={story} codes={codes} onSelect={select} inline={inline} />
             </>
           ) : (
@@ -567,7 +493,7 @@ export function App() {
                 {matches.map((m, i) => (
                   <button
                     key={i}
-                    disabled={!!inlineDraft}
+                    disabled={pending || composing}
                     onClick={() => {
                       setDocumentId(m.documentId);
                       setStoryId(m.storyId);
@@ -630,7 +556,7 @@ export function App() {
               <textarea
                 id="span-text"
                 value={draft}
-                disabled={!selected.span.editable || busy || !!inlineDraft}
+                disabled={!selected.span.editable || busy || pending}
                 onChange={(e) => {
                   setDraft(e.target.value);
                   setPreview(undefined);

@@ -5,7 +5,6 @@ import {
   type TextPiece,
   type TextPosition,
 } from '../engine/text-range';
-import type { KeyBinding } from './keymap';
 
 /** A draft keeps one piece per source span, including empty spans. */
 export interface InlineDraft {
@@ -19,19 +18,6 @@ export interface InlineDraft {
   initialAnchor: TextPosition;
   initialHead: TextPosition;
 }
-export interface InlineEditing {
-  history: { past: InlineDraft[]; future: InlineDraft[] };
-  busy: boolean;
-  keymap: readonly KeyBinding[];
-  draft?: InlineDraft;
-  restore?: { anchor: TextPosition; head: TextPosition };
-  selectRange: (anchor?: TextPosition, head?: TextPosition) => void;
-  start: (anchor: TextPosition, head: TextPosition, insert?: string, backward?: boolean) => void;
-  change: (draft: InlineDraft) => void;
-  cancel: () => void;
-  message: (message: string) => void;
-}
-
 export function editDraft(draft: InlineDraft, from: number, to: number, text: string): InlineDraft {
   if (!validInlineText(text))
     throw new Error('Inline edits cannot contain tabs, line breaks, or invalid text.');

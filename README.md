@@ -42,14 +42,15 @@ scripts. To open the bundled sample documents immediately:
 npm start -- fixtures/generated/plain.docx fixtures/generated/review.docx fixtures/generated/sections.docx
 ```
 
-Select text in the document, edit it in the inspector, and choose **Preview text
-edit**, then **Apply transaction**. Clicking a code shows its source XML.
-For inline editing, type at a text selection or double-click a span, then choose
-**Preview inline edit** and **Apply transaction**. Escape or **Cancel inline edit**
-discards the draft. Inline edits cross adjacent formatting runs, including within table cells, while
-preserving the formatting of untouched text. Structure and protected text remain boundaries.
-Workspace replacement uses the same preview/commit flow. Undo reverses the entire
-transaction. Save As creates a new verified DOCX and refuses existing paths.
+Type directly in the document. **Enter** splits a paragraph; **Backspace** at its
+start or **Delete** at its end joins adjacent paragraphs. Text editing crosses
+formatting runs, and paste may introduce paragraph breaks. **Undo** reverses each
+input operation. Structural editing stays within ordinary paragraphs in one
+container, including a table cell; protected content and section boundaries stop it.
+
+The inspector and workspace replacement still use **Preview text edit** and
+**Apply transaction**. Clicking a code shows its source XML. Save As creates a new
+verified DOCX and refuses existing paths.
 
 Click **Commands** or press **Ctrl+Shift+P** to search the available actions.
 Use arrow keys and Enter to choose an action, or Escape to return to your edit.
@@ -60,15 +61,18 @@ Unavailable commands remain visible with an explanation.
 | Ctrl+O | Open documents |
 | Ctrl+Shift+S | Save As |
 | Ctrl+F | Focus workspace search |
-| Ctrl+Enter | Preview the inline or inspector text edit |
+| Ctrl+Enter | Preview the inspector text edit |
 | Ctrl+Shift+Enter | Apply the displayed transaction |
 | Ctrl+Z | Undo a workspace transaction |
 | Ctrl+Y / Ctrl+Shift+Z | Redo a workspace transaction |
 | Ctrl+Shift+E | Toggle Reveal Codes |
+| Enter | Split paragraph |
+| Backspace / Delete | Delete text or join at a paragraph edge |
 
 Inside text fields, undo/redo shortcuts retain native text-editing behavior.
-Inline drafts have local undo/redo that preserves formatting. Use the toolbar or
-palette to undo a workspace transaction while a field has focus.
+The document editor uses workspace undo/redo, preserving formatting and source
+identities. Use the toolbar or palette for workspace undo while an inspector field
+has focus.
 
 Expand **Keybindings** in the sidebar to remap commands with JSON, for example
 `{"commands.open": ["Ctrl+k"]}`. Use `[]` to unbind a command or `{}` to restore
@@ -85,7 +89,8 @@ defaults. Changes apply immediately and persist locally.
   continuation handling, plus approximate paragraph and hanging indentation.
 - Table grids, horizontal/vertical merges, nested tables, approximate widths and
   borders, with source-bound table/cell inspection and the same safe text editing.
-- Cross-run inline insert/delete/replace with preserved formatting, previewable workspace transactions,
+- Native inline editing, bounded paragraph split/join and multiline paste, with preserved formatting,
+  previewable workspace transactions,
   cross-run literal search/replacement, protected-match reporting, and session undo/redo.
 - Electron/React desktop with a CodeMirror Reveal Codes projection and inspector.
 - Shared GUI command registry, searchable palette, contextual availability, and remappable shortcuts.
@@ -93,8 +98,7 @@ defaults. Changes apply immediately and persist locally.
 - Synthetic `docxfix` fixtures, preservation/command/save tests, and desktop
   end-to-end verification.
 
-This is a working text-span editor and document workbench. Paragraph split/join,
-formatting changes, comment/revision editing,
+This is a working document editor and workbench. Formatting changes, comment/revision editing,
 paginated preview, and in-place saves are still future work.
 See the precise [editing contract](docs/editing-contract.md).
 

@@ -128,8 +128,8 @@ The foundation, numbering, and table display slices are implemented. Literal
 workspace search and replacement now cross formatting runs, using source-bound
 span edits and stopping at structural and review boundaries.
 
-1. Add conservative paragraph split/join commands with preservation fixtures and
-   explicit caret mapping, using the implemented identity-aware package patches.
+1. Extend the implemented bounded paragraph commands to additional structures
+   as preservation rules and fixtures are established.
 2. Expand formatting inspection and add new actions to the shared command registry.
 
 ### Implemented slice: bounded inline typing
@@ -212,3 +212,16 @@ The fixed-width projection shows bold, italic, underline, RGB text colors, and
 OOXML highlights in both code views. Style bold/italic toggles are resolved before
 direct overrides. Display CSS uses only validated colors and known property values.
 Native draft fields remain plain text. Paragraph split/join is the next slice.
+
+### Implemented slice: native inline input and bounded paragraph split/join
+
+The document now accepts native CodeMirror input without a textarea draft. The
+serialized input queue stages each operation atomically, with composition batching,
+source revision checks, rollback, and logical selection restoration on undo/redo.
+Enter splits; edge deletion joins; multiline paste creates ordinary paragraphs.
+Split copies paragraph settings and run formatting; join retains the first
+paragraph's settings. Bookmark/comment ranges, proofing markers, and supported run
+objects survive structural edits unchanged. Cells, sections, fields, and review
+structures enforce explicit boundaries. Empty paragraphs reuse existing
+run/paragraph-mark formatting.
+Inspector and workspace replacements retain the explicit preview/commit workflow.

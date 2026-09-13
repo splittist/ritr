@@ -1,3 +1,5 @@
+import { editProjection } from './paragraph-edit';
+import type { ProjectionEdit, ProjectionSelection } from './projection';
 import {
   resolveTextRange,
   replacePieces,
@@ -47,6 +49,8 @@ interface Entry {
   current: DocxPackage;
 }
 interface Transaction {
+  selectionBefore?: ProjectionSelection;
+  selectionAfter?: ProjectionSelection;
   label: string;
   before: Map<string, DocxPackage>;
   after: Map<string, DocxPackage>;
@@ -63,6 +67,8 @@ export interface WorkspaceEvent {
 
 /** The only mutable engine object. A transaction is staged in full before publication. */
 export class Workspace {
+  selection?: ProjectionSelection;
+  private typing?: ProjectionSelection & { spanId?: string };
   private entries = new Map<string, Entry>();
   private pending = new Map<string, Pending>();
   private past: Transaction[] = [];
@@ -77,6 +83,8 @@ export class Workspace {
     };
   }
   private publish(type: WorkspaceEvent['type'], ids: string[]) {
+    if (!['undo', 'redo'].includes(type)) this.selection = undefined;
+    if (type !== 'commit') this.typing = undefined;
     this.epoch++;
     this.pending.clear();
     // Observer failures cannot turn a committed transaction into an apparent failure.
@@ -165,6 +173,59 @@ export class Workspace {
         ),
       matches.filter((m) => !m.editable).length,
     );
+  }
+  applyProjection(edit: ProjectionEdit): void {
+    const entry = this.entry(edit.documentId);
+    if (entry.revision !== edit.expectedRevision) throw new Error('The editing snapshot is stale');
+    const continuation =
+      this.typing &&
+      edit.from === edit.to &&
+      edit.from === this.typing.head &&
+      edit.documentId === this.typing.documentId &&
+      edit.storyId === this.typing.storyId &&
+      edit.origin === this.typing.origin;
+    const result = editProjection(entry.current, {
+      ...edit,
+      typingSpan: edit.typingSpan ?? (continuation ? this.typing?.spanId : undefined),
+    });
+    const after = result.pkg;
+    if (after === entry.current) return;
+    DocxPackage.open(after.save());
+    const id = `change-${this.nextId++}`;
+    const label = edit.text.includes('\n') ? 'Split paragraph' : 'Edit document text';
+    this.pending.clear();
+    this.pending.set(id, {
+      epoch: this.epoch,
+      preview: { id, label, edits: [], skipped: 0 },
+      transaction: {
+        label,
+        selectionBefore: {
+          documentId: edit.documentId,
+          storyId: edit.storyId,
+          origin: edit.origin,
+          anchor: edit.from,
+          head: edit.to,
+        },
+        selectionAfter: {
+          documentId: edit.documentId,
+          storyId: edit.storyId,
+          origin: edit.origin,
+          anchor: edit.from + edit.text.length,
+          head: edit.from + edit.text.length,
+        },
+        before: new Map([[entry.id, entry.current]]),
+        after: new Map([[entry.id, after]]),
+      },
+    });
+    this.commit(id);
+    this.typing = {
+      documentId: edit.documentId,
+      storyId: edit.storyId,
+      origin: edit.origin,
+      anchor: edit.from + edit.text.length,
+      head: edit.from + edit.text.length,
+      spanId: result.typingSpan,
+    };
   }
   previewRange(edit: {
     documentId: string;
@@ -322,6 +383,7 @@ export class Workspace {
       e.revision++;
     }
     this.future.push(transaction);
+    this.selection = transaction.selectionBefore;
     this.publish('undo', [...transaction.before.keys()]);
   }
   redo(): void {
@@ -333,6 +395,7 @@ export class Workspace {
       e.revision++;
     }
     this.past.push(transaction);
+    this.selection = transaction.selectionAfter;
     this.publish('redo', [...transaction.after.keys()]);
   }
   markSaved(id: string, savedPackage: DocxPackage): void {

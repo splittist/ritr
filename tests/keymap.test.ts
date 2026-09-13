@@ -31,13 +31,13 @@ test('custom bindings win over conflicting defaults; ambiguous overrides and mal
   assert.throws(() => resolveKeymap({ unknown: ['Ctrl+k'] } as never), /Unknown/);
   assert.throws(() => resolveKeymap({ 'file.open': 'Ctrl+k' } as never), /array/);
 });
-test('workspace and draft history have independent bindings and deletion commands can be remapped', () => {
+test('workspace history defers to fields and paragraph editing commands can be remapped', () => {
   const map = resolveKeymap({ 'text.deleteBackward': ['Alt+h'] });
   const z = { ...event, key: 'z' };
   assert.equal(shortcutCommand(z, false, map), 'history.undo');
   assert.equal(shortcutCommand(z, true, map), undefined);
-  assert.equal(editorCommand(z, map, true), 'text.undo');
   assert.equal(editorCommand(z, map), undefined);
+  assert.equal(editorCommand({ ...event, key: 'Enter', ctrlKey: false }, map), 'paragraph.split');
   assert.equal(
     editorCommand({ ...event, key: 'h', ctrlKey: false, altKey: true }, map),
     'text.deleteBackward',

@@ -3,7 +3,7 @@ import { commands, type CommandId, type EditorCommandId } from './commands';
 export interface KeyBinding {
   command: CommandId | EditorCommandId;
   key: string;
-  scope: 'global' | 'projection' | 'editor' | 'draft';
+  scope: 'global' | 'projection' | 'editor';
 }
 export const defaultKeymap: readonly KeyBinding[] = [
   { command: 'commands.open', key: 'Ctrl+Shift+P', scope: 'global' },
@@ -18,11 +18,7 @@ export const defaultKeymap: readonly KeyBinding[] = [
   { command: 'view.codes', key: 'Ctrl+Shift+E', scope: 'global' },
   { command: 'text.deleteBackward', key: 'Backspace', scope: 'editor' },
   { command: 'text.deleteForward', key: 'Delete', scope: 'editor' },
-  { command: 'text.edit', key: 'Enter', scope: 'editor' },
-  { command: 'text.cancel', key: 'Escape', scope: 'editor' },
-  { command: 'text.undo', key: 'Ctrl+Z', scope: 'draft' },
-  { command: 'text.redo', key: 'Ctrl+Y', scope: 'draft' },
-  { command: 'text.redo', key: 'Ctrl+Shift+Z', scope: 'draft' },
+  { command: 'paragraph.split', key: 'Enter', scope: 'editor' },
 ];
 export type KeymapOverrides = Partial<Record<CommandId | EditorCommandId, readonly string[]>>;
 
@@ -39,9 +35,6 @@ function chord(key: string) {
     throw new Error(`Invalid key chord: ${key}`);
   return [...modifiers, name].join('+');
 }
-function overlap(a: KeyBinding['scope'], b: KeyBinding['scope']) {
-  return !((a === 'projection' && b === 'draft') || (a === 'draft' && b === 'projection'));
-}
 /** An override replaces all bindings for a command; [] explicitly unbinds it. */
 export function resolveKeymap(overrides: KeymapOverrides = {}): readonly KeyBinding[] {
   if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides))
@@ -57,11 +50,10 @@ export function resolveKeymap(overrides: KeymapOverrides = {}): readonly KeyBind
     const scope = original?.scope ?? 'global';
     for (const key of keys) {
       const normalized = chord(key);
-      if (custom.some((b) => overlap(scope, b.scope) && chord(b.key) === normalized))
+      if (custom.some((b) => chord(b.key) === normalized))
         throw new Error(`Conflicting key chord: ${key}`);
       for (let i = result.length - 1; i >= 0; i--)
-        if (overlap(scope, result[i]!.scope) && chord(result[i]!.key) === normalized)
-          result.splice(i, 1);
+        if (chord(result[i]!.key) === normalized) result.splice(i, 1);
       custom.push({ command: command as KeyBinding['command'], key, scope });
     }
   }
@@ -93,19 +85,13 @@ export function shortcutCommand(
   keymap: readonly KeyBinding[] = defaultKeymap,
 ): CommandId | undefined {
   return keymap.find(
-    (b) =>
-      b.scope !== 'editor' &&
-      b.scope !== 'draft' &&
-      (!nativeText || b.scope !== 'projection') &&
-      matchKey(event, b),
+    (b) => b.scope !== 'editor' && (!nativeText || b.scope !== 'projection') && matchKey(event, b),
   )?.command as CommandId | undefined;
 }
 export function editorCommand(
   event: KeyEvent,
   keymap: readonly KeyBinding[] = defaultKeymap,
-  draft = false,
 ): EditorCommandId | undefined {
-  return keymap.find(
-    (b) => (b.scope === 'editor' || (draft && b.scope === 'draft')) && matchKey(event, b),
-  )?.command as EditorCommandId | undefined;
+  return keymap.find((b) => b.scope === 'editor' && matchKey(event, b))?.command as
+    EditorCommandId | undefined;
 }

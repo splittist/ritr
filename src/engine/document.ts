@@ -28,7 +28,7 @@ export interface CodeToken {
   category: 'structure' | 'format' | 'review' | 'opaque';
   source: SourceBinding;
   details: Record<string, unknown>;
-  role?: 'paragraph-start' | 'paragraph-end' | 'list-label';
+  role?: 'paragraph-start' | 'paragraph-end' | 'list-label' | 'anchor';
   paragraph?: Paragraph;
 }
 export interface TextToken {
@@ -359,9 +359,11 @@ export function readDocument(pkg: DocxPackage): DocumentModel {
             'commentReference',
             'bookmarkStart',
             'bookmarkEnd',
+            'proofErr',
           ].includes(name)
         ) {
-          code(node, `${name} ${wordAttr(node, 'id') ?? ''}`, 'review');
+          const marker = code(node, `${name} ${wordAttr(node, 'id') ?? ''}`, 'review');
+          if (name !== 'commentReference') marker.role = 'anchor';
           return;
         }
         if (
