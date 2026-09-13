@@ -152,7 +152,12 @@ completion. The inspector still submits a previewable `TextEdit`.
 
 `paragraph-edit.ts` implements the source-preserving split/join and projection-edit
 operations. `Workspace.applyProjection` stages the whole input before committing one
-history entry; undo/redo returns the logical caret/selection alongside snapshots.
+input transaction; adjacent typing/deletion can share a history entry. Undo/redo
+returns the logical caret/selection alongside snapshots. `format-edit.ts` isolates
+selected run fragments and changes only supported run properties. `format.ts` owns
+the shared formatting vocabulary, effective values, and highlight palette. The
+formatting toolbar and editor shortcuts use the same active editor target; caret
+overrides travel with subsequent input so formatting and typing undo together.
 `text-range.ts` supplies the run formatting and source-position operations.
 
 `commands.ts` is a small GUI action registry. Buttons, palette entries, and global

@@ -20,7 +20,7 @@ crossRunParts['word/document.xml'] = strToU8(
     )
     .replace(
       /(<w:p[^>]*>)/,
-      '$1<w:bookmarkStart w:id="50" w:name="split_join_smoke"/><w:proofErr w:type="spellStart"/>',
+      '$1<w:pPr><w:pStyle w:val="SmokeHeading"/></w:pPr><w:bookmarkStart w:id="50" w:name="split_join_smoke"/><w:proofErr w:type="spellStart"/>',
     )
     .replace('</w:p>', '<w:proofErr w:type="spellEnd"/><w:bookmarkEnd w:id="50"/></w:p>')
     .replace('Replace this phrase', 'Unrelated text')
@@ -29,6 +29,33 @@ crossRunParts['word/document.xml'] = strToU8(
       '<w:p><w:r><w:rPr><w:b/><w:i/><w:u w:val="single"/><w:color w:val="1234AB"/><w:highlight w:val="yellow"/><w:rFonts w:ascii="Arial"/><w:sz w:val="72"/></w:rPr><w:t>Formatted preview</w:t></w:r><w:r><w:rPr><w:b w:val="0"/><w:i w:val="0"/></w:rPr><w:t> Plain preview</w:t></w:r></w:p><w:sectPr',
     ),
 );
+crossRunParts['word/styles.xml'] = strToU8(
+  (crossRunParts['word/styles.xml']
+    ? strFromU8(crossRunParts['word/styles.xml'])
+    : '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"></w:styles>'
+  ).replace(
+    '</w:styles>',
+    '<w:style w:type="paragraph" w:styleId="SmokeHeading"><w:next w:val="SmokeBody"/></w:style><w:style w:type="paragraph" w:styleId="SmokeBody"/></w:styles>',
+  ),
+);
+const styleRelationships = crossRunParts['word/_rels/document.xml.rels']
+  ? strFromU8(crossRunParts['word/_rels/document.xml.rels'])
+  : '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
+if (!styleRelationships.includes('/styles"'))
+  crossRunParts['word/_rels/document.xml.rels'] = strToU8(
+    styleRelationships.replace(
+      '</Relationships>',
+      '<Relationship Id="smokeStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>',
+    ),
+  );
+const contentTypes = strFromU8(crossRunParts['[Content_Types].xml']);
+if (!contentTypes.includes('/word/styles.xml'))
+  crossRunParts['[Content_Types].xml'] = strToU8(
+    contentTypes.replace(
+      '</Types>',
+      '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>',
+    ),
+  );
 await writeFile(crossRunPath, zipSync(crossRunParts));
 const env = { ...process.env, RITR_SMOKE: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
@@ -365,6 +392,19 @@ try {
       .locator('.editable-span')
       .filter({ hasText: /fast typing/ })
       .waitFor();
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await page.waitForFunction(async () => {
+      const doc = (await window.ritr.snapshot()).documents.find((d) => d.name === 'cross-run.docx');
+      return !doc.model.stories[0].tokens.some(
+        (t) => t.kind === 'text' && t.span.text.includes('fast typing'),
+      );
+    });
+    assert.equal(await page.locator('.paragraph-line').count(), 5, 'Undo typing keeps the split');
+    await page.getByRole('button', { name: 'Redo', exact: true }).click();
+    await page
+      .locator('.editable-span')
+      .filter({ hasText: /fast typing/ })
+      .waitFor();
     await page.keyboard.press('Home');
     await page.keyboard.press('Backspace');
     await page.waitForFunction(() => document.querySelectorAll('.paragraph-line').length === 4);
@@ -503,6 +543,94 @@ try {
     .locator('.editable-span')
     .filter({ hasText: /^Cross-run $/ })
     .waitFor();
+  // A dedicated Enter at the end of a heading uses its declared next paragraph style.
+  const headingEnd = page.locator('.editable-span').filter({ hasText: /^needle$/ });
+  await headingEnd.click();
+  await headingEnd.evaluate((span) => {
+    const range = document.createRange();
+    range.selectNodeContents(span);
+    range.collapse(false);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    document.dispatchEvent(new Event('selectionchange'));
+  });
+  await page.waitForTimeout(100);
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(async () => {
+    const doc = (await window.ritr.snapshot()).documents.find((d) => d.name === 'cross-run.docx');
+    return doc.model.stories[0].paragraphs[1]?.styleId === 'SmokeBody';
+  });
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await page.waitForFunction(async () => {
+    const doc = (await window.ritr.snapshot()).documents.find((d) => d.name === 'cross-run.docx');
+    return doc.model.stories[0].paragraphs.length === 4;
+  });
+  // Selection formatting and caret typing use the same source-preserving commands.
+  const formatSpan = page.locator('.editable-span').filter({ hasText: /^Cross-run $/ });
+  await formatSpan.click();
+  await formatSpan.evaluate((span) => {
+    const range = document.createRange();
+    range.setStart(span.firstChild, 0);
+    range.setEnd(span.firstChild, 5);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    document.dispatchEvent(new Event('selectionchange'));
+  });
+  await page.waitForTimeout(100);
+  await page.getByRole('button', { name: 'Bold', exact: true }).click();
+  const formattedSelection = page.locator('.editable-span').filter({ hasText: /^Cross$/ });
+  await formattedSelection.waitFor();
+  assert.equal(await formattedSelection.evaluate((s) => getComputedStyle(s).fontWeight), '700');
+  await page.keyboard.press('Control+i');
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll('.editable-span')].some(
+      (s) => s.textContent === 'Cross' && getComputedStyle(s).fontStyle === 'italic',
+    ),
+  );
+  await page.getByLabel('Text color', { exact: true }).fill('#123456');
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll('.editable-span')].some(
+      (s) => s.textContent === 'Cross' && getComputedStyle(s).color === 'rgb(18, 52, 86)',
+    ),
+  );
+  await page.getByLabel('Text highlight', { exact: true }).selectOption('yellow');
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll('.editable-span')].some(
+      (s) =>
+        s.textContent === 'Cross' && getComputedStyle(s).backgroundColor === 'rgb(255, 255, 0)',
+    ),
+  );
+  await page.screenshot({ path: join(output, 'formatting-controls.png'), fullPage: true });
+  for (let i = 0; i < 4; i++) {
+    const revision = await page.evaluate(
+      async () =>
+        (await window.ritr.snapshot()).documents.find((d) => d.name === 'cross-run.docx').revision,
+    );
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await page.waitForFunction(
+      async (revision) =>
+        (await window.ritr.snapshot()).documents.find((d) => d.name === 'cross-run.docx')
+          .revision !== revision,
+      revision,
+    );
+  }
+  await formatSpan.waitFor();
+  await page.locator('.cm-content').first().press('Control+Home');
+  await page.keyboard.press('Control+b');
+  await page.keyboard.type('format me');
+  const typedFormat = page.locator('.editable-span').filter({ hasText: /^format me$/ });
+  await typedFormat.waitFor();
+  assert.equal(await typedFormat.evaluate((s) => getComputedStyle(s).fontWeight), '700');
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await typedFormat.waitFor({ state: 'detached' });
+  await formatSpan.waitFor();
+  assert.equal(
+    await typedFormat.count(),
+    0,
+    'One undo removes the complete formatted typing burst',
+  );
   await page.screenshot({ path: join(output, 'direct-editing.png'), fullPage: true });
   // Edits inside ordinary table cells use the same native editor.
   await page.getByRole('button', { name: /tables.docx/ }).click();

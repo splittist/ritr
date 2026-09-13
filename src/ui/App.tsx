@@ -1,5 +1,6 @@
+import { FormattingToolbar } from './FormattingToolbar';
 import type { ProjectionEdit } from '../engine/projection';
-import type { DirectEditing } from './direct-edit';
+import type { DirectEditing, FormattingTarget } from './direct-edit';
 import { commandShortcuts, shortcutCommand, resolveKeymap } from './keymap';
 import { useEffect, useRef, useState } from 'react';
 import type { DesktopApi, Snapshot } from '../desktop/protocol';
@@ -52,6 +53,11 @@ export function App() {
   const [composing, setComposing] = useState(false);
   const [focus, setFocus] = useState<DirectEditing['focus']>();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [formatting, setFormatting] = useState<{
+    documentId: string;
+    storyId: string;
+    target?: FormattingTarget;
+  }>();
   const latest = useRef(state);
   const queue = useRef<ProjectionEdit[]>([]);
   const draining = useRef(false);
@@ -89,6 +95,23 @@ export function App() {
     setDraft(token?.kind === 'text' ? token.span.text : '');
   }
   const inline: DirectEditing = {
+    activate: (target) => {
+      if (document && story) setFormatting({ documentId: document.id, storyId: story.id, target });
+    },
+    format: (edit) => {
+      if (!document || !story || busy || pending || running.current) return;
+      void run(async () => {
+        refresh(
+          await api!.formatProjection({
+            ...edit,
+            documentId: document.id,
+            storyId: story.id,
+            expectedRevision: document.revision,
+          }),
+        );
+        setMessage('Text formatting applied. Undo restores the previous formatting.');
+      });
+    },
     get busy() {
       return busy || running.current;
     },
@@ -421,6 +444,14 @@ export function App() {
                       : 'Saved snapshot'}
                 </span>
               </div>
+              <FormattingToolbar
+                busy={busy || pending || composing}
+                target={
+                  formatting?.documentId === document?.id && formatting?.storyId === story?.id
+                    ? formatting.target
+                    : undefined
+                }
+              />
               <StoryView story={story} codes={codes} onSelect={select} inline={inline} />
             </>
           ) : (

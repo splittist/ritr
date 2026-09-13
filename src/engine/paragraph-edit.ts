@@ -1,6 +1,9 @@
+import { Styles, value } from './styles';
 import { DocxPackage } from '../package/docx';
 import {
   assertText,
+  escapeXml,
+  wordAttr,
   child,
   descendants,
   isWord,
@@ -376,6 +379,50 @@ function replaceInParagraph(
   return patches.length ? apply(pkg, story.part, patches) : pkg;
 }
 
+function applyNextStyle(pkg: DocxPackage, story: Story, originalId: string, rightId: string) {
+  const paragraph = story.paragraphs.find((p) => p.id === originalId);
+  if (!paragraph || paragraph.numbering) return pkg;
+  const styles = new Styles(pkg);
+  const current = styles.entries.get(paragraph.styleId ?? styles.defaultParagraph ?? '');
+  const next = current && value(current, 'next');
+  const target = next && styles.entries.get(next);
+  if (!next || !target || wordAttr(target, 'type') !== 'paragraph' || next === paragraph.styleId)
+    return pkg;
+  const node = nodeIn(pkg, story.part, rightId),
+    props = child(node, 'pPr');
+  const existing = props && child(props, 'pStyle'),
+    source = pkg.text(story.part);
+  const prefix = node.name.includes(':') ? node.name.split(':')[0] + ':' : '';
+  const replacement = `<${prefix}pStyle ${prefix}val="${escapeXml(next).replace(/"/g, '&quot;')}"/>`;
+  if (existing)
+    return apply(pkg, story.part, [
+      {
+        start: existing.start,
+        end: existing.end,
+        replacement,
+        retain: [{ nodeId: existing.id, offset: 0 }],
+      },
+    ]);
+  if (!props)
+    return apply(pkg, story.part, [
+      {
+        start: node.openEnd,
+        end: node.openEnd,
+        replacement: `<${prefix}pPr>${replacement}</${prefix}pPr>`,
+      },
+    ]);
+  if (props.selfClosing)
+    return apply(pkg, story.part, [
+      {
+        start: props.start,
+        end: props.end,
+        replacement: opening(source, props) + replacement + `</${props.name}>`,
+        retain: [{ nodeId: props.id, offset: 0 }],
+      },
+    ]);
+  return apply(pkg, story.part, [{ start: props.openEnd, end: props.openEnd, replacement }]);
+}
+
 /** Stage the complete input (including multi-paragraph paste) before publication. */
 export function editProjection(pkg: DocxPackage, edit: ProjectionEdit) {
   const story = readDocument(pkg).stories.find((s) => s.id === edit.storyId);
@@ -393,6 +440,8 @@ export function editProjection(pkg: DocxPackage, edit: ProjectionEdit) {
   if (selected.includes('\ufffc') || edit.text.includes('\ufffc'))
     throw new Error('Document objects and anchors cannot be edited as text');
   assertText(edit.text.replace(/\n/g, ''));
+  if (edit.enter !== undefined && typeof edit.enter !== 'boolean')
+    throw new Error('Invalid Enter command');
   const first = projection.paragraphs.find((p) => p.from <= edit.from && edit.from <= p.to);
   const last = projection.paragraphs.find((p) => p.from <= edit.to && edit.to <= p.to);
   if (!first || !last) throw new Error('Select text inside a paragraph');
@@ -435,6 +484,8 @@ export function editProjection(pkg: DocxPackage, edit: ProjectionEdit) {
     splitOwner = split.rightSpan;
     splitOffset = chunk.length;
   }
+  if (edit.enter && edit.text === '\n' && edit.from === edit.to && edit.from === first.to)
+    pkg = applyNextStyle(pkg, story, first.id, paragraphId);
   const updatedStory = readDocument(pkg).stories.find((s) => s.id === story.id)!;
   const updated = projectStory(updatedStory, edit.origin);
   const offset = edit.from + edit.text.length;

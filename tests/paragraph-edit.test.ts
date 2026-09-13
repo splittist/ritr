@@ -4,7 +4,7 @@ import { Workspace } from '../src/engine/workspace';
 import { spans } from '../src/engine/document';
 import { projectTokens, tokenId } from '../src/engine/projection';
 import { descendants, child } from '../src/package/xml';
-import { fixture, paragraph } from './helpers';
+import { fixture, paragraph, relation, relationships } from './helpers';
 
 function setup(body = paragraph('hello') + paragraph('world')) {
   const w = new Workspace(),
@@ -373,4 +373,49 @@ test('splitting between text nodes within a run adds no empty text elements', ()
     spans(w.document(id).model).map((s) => s.text),
     ['ab', 'cd'],
   );
+});
+
+test('Enter at paragraph end uses a valid next style, while middle splits, paste and lists retain their style', () => {
+  for (const scenario of ['end', 'middle', 'paste', 'list', 'missing'] as const) {
+    const w = new Workspace();
+    const body =
+      '<w:p><w:pPr><w:pStyle w:val="Heading"/>' +
+      (scenario === 'list' ? '<w:numPr><w:numId w:val="1"/></w:numPr>' : '') +
+      '</w:pPr><w:r><w:t>title</w:t></w:r></w:p>';
+    const styles =
+      '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:styleId="Heading"><w:next w:val="' +
+      (scenario === 'missing' ? 'Missing' : 'Body') +
+      '"/><w:rPr><w:b/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Body"/></w:styles>';
+    const id = w.open(
+      'next-style',
+      fixture(body, {
+        'word/styles.xml': styles,
+        'word/_rels/document.xml.rels': relationships(relation('styles', 'styles', 'styles.xml')),
+      }),
+    );
+    const before = w.package(id),
+      story = w.document(id).model.stories[0]!;
+    const from = scenario === 'middle' ? 2 : 5;
+    w.applyProjection({
+      documentId: id,
+      storyId: story.id,
+      origin: tokenId(story.tokens[0]!),
+      expectedRevision: 0,
+      from,
+      to: from,
+      text: '\n',
+      enter: scenario !== 'paste',
+    });
+    const paragraphs = w.document(id).model.stories[0]!.paragraphs;
+    assert.equal(paragraphs[0]!.styleId, 'Heading');
+    assert.equal(paragraphs[1]!.styleId, scenario === 'end' ? 'Body' : 'Heading', scenario);
+    assert.equal(w.package(id).text('word/styles.xml'), styles);
+    w.undo();
+    assert.equal(w.package(id), before);
+    w.redo();
+    assert.equal(
+      w.document(id).model.stories[0]!.paragraphs[1]!.styleId,
+      scenario === 'end' ? 'Body' : 'Heading',
+    );
+  }
 });

@@ -6,6 +6,9 @@ export interface KeyBinding {
   scope: 'global' | 'projection' | 'editor';
 }
 export const defaultKeymap: readonly KeyBinding[] = [
+  { command: 'format.bold', key: 'Ctrl+B', scope: 'editor' },
+  { command: 'format.italic', key: 'Ctrl+I', scope: 'editor' },
+  { command: 'format.underline', key: 'Ctrl+U', scope: 'editor' },
   { command: 'commands.open', key: 'Ctrl+Shift+P', scope: 'global' },
   { command: 'file.open', key: 'Ctrl+O', scope: 'global' },
   { command: 'file.saveAs', key: 'Ctrl+Shift+S', scope: 'global' },

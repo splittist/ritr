@@ -768,3 +768,36 @@ footer.error {
 .keymap-settings button {
   margin-top: 8px;
 }
+
+.format-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #d4dbce;
+}
+.format-toolbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.format-toolbar input[type='color'] {
+  width: 30px;
+  height: 28px;
+  padding: 2px;
+}
+.format-toolbar button[aria-pressed='true'] {
+  background: #234f43;
+  color: white;
+}
+.format-toolbar button[aria-label='Bold'] {
+  font-weight: bold;
+}
+.format-toolbar button[aria-label='Italic'] {
+  font-style: italic;
+}
+.format-toolbar button[aria-label='Underline'] {
+  text-decoration: underline;
+}

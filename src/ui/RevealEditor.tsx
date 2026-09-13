@@ -1,8 +1,9 @@
+import { effectiveFormat, type TextFormat } from '../engine/format';
 import { useEffect, useRef } from 'react';
 import { Annotation, EditorState, StateEffect, StateField } from '@codemirror/state';
 import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view';
 import type { CodeToken, Story, Token } from '../engine/document';
-import { projectTokens, tokenId } from '../engine/projection';
+import { projectTokens, tokenId, type InputHistory } from '../engine/projection';
 import { textStyle } from './text-format';
 import { editorCommand } from './keymap';
 import { deletionRange } from './inline-edit';
@@ -111,6 +112,9 @@ export function RevealEditor({
   const sync = useRef(() => {});
   useEffect(() => {
     let alive = true;
+    let typingFormat: TextFormat | undefined;
+    const applyShortcut: { current?: (request: TextFormat | 'b' | 'i' | 'u') => void } = {};
+    let history: (InputHistory & { time: number }) | undefined;
     const origin = () => tokenId(current.current.story.tokens[0]!);
     const selected = () => {
       const view = viewRef.current!;
@@ -128,13 +132,78 @@ export function RevealEditor({
         )
       );
     };
-    const send = (from: number, to: number, text: string) =>
+    const activate = () => {
+      const view = viewRef.current!;
+      const selection = view.state.selection.main;
+      const locations = selection.empty
+        ? [selected()].filter(Boolean)
+        : projection.current.locations.filter(
+            (l) => l.token.kind === 'text' && l.from < selection.to && l.to > selection.from,
+          );
+      const textSpans = locations.flatMap((l) => (l?.token.kind === 'text' ? [l.token.span] : []));
+      const values: TextFormat = {
+        ...effectiveFormat(textSpans[0]),
+        ...(selection.empty ? typingFormat : {}),
+      };
+      if (!selection.empty)
+        for (const key of ['b', 'i', 'u'] as const)
+          values[key] = textSpans.length > 0 && textSpans.every((s) => effectiveFormat(s)[key]);
+      const editable =
+        textSpans.every((s) => s.editable) &&
+        !view.state.doc.sliceString(selection.from, selection.to).includes('\ufffc') &&
+        (selection.empty
+          ? projection.current.paragraphs.some(
+              (p) => p.from <= selection.from && selection.from <= p.to,
+            )
+          : textSpans.length > 0);
+      const applyFormat = (request: TextFormat | 'b' | 'i' | 'u') => {
+        if (
+          !alive ||
+          current.current.inline.busy ||
+          current.current.inline.pending ||
+          composing.current !== undefined
+        )
+          return;
+        if (!editable) {
+          current.current.inline.message(
+            'Select editable text or place the caret in an editable paragraph.',
+          );
+          return;
+        }
+        const format = typeof request === 'string' ? { [request]: !values[request] } : request;
+        history = undefined;
+        const range = view.state.selection.main;
+        if (range.empty) {
+          typingFormat = { ...typingFormat, ...format };
+          activate();
+        } else {
+          typingFormat = undefined;
+          current.current.inline.format({
+            origin: origin(),
+            from: range.from,
+            to: range.to,
+            format,
+          });
+        }
+        view.focus();
+      };
+      applyShortcut.current = applyFormat;
+      current.current.inline.activate({
+        values,
+        editable,
+        apply: applyFormat,
+      });
+    };
+    const send = (from: number, to: number, text: string, group?: InputHistory, enter?: boolean) =>
       current.current.inline.change({
         origin: origin(),
         from,
         to,
         text,
         typingSpan: preferred.current,
+        history: group,
+        typingFormat,
+        enter,
       });
     const flushComposition = () => {
       if (!alive || composing.current === undefined) return;
@@ -211,8 +280,36 @@ export function RevealEditor({
                 update.changes.iterChanges((from, to, _a, _b, inserted) =>
                   changes.push({ from, to, text: inserted.toString() }),
                 );
+                const tx = update.transactions[0];
+                const kind = tx?.isUserEvent('input.type')
+                  ? 'typing'
+                  : tx?.isUserEvent('delete.backward')
+                    ? 'backspace'
+                    : tx?.isUserEvent('delete.forward')
+                      ? 'delete'
+                      : undefined;
+                const change = changes[0];
+                const groupable =
+                  kind &&
+                  changes.length === 1 &&
+                  update.startState.selection.main.empty &&
+                  change &&
+                  !change.text.includes('\n') &&
+                  !update.startState.doc.sliceString(change.from, change.to).includes('\n');
+                const now = Date.now();
+                if (!groupable) history = undefined;
+                else if (!history || history.kind !== kind || now - history.time > 1000)
+                  history = { id: crypto.randomUUID(), kind, time: now };
+                else history.time = now;
                 // Descending offsets compose independently within one native transaction.
-                for (const change of changes.reverse()) send(change.from, change.to, change.text);
+                for (const change of changes.reverse())
+                  send(
+                    change.from,
+                    change.to,
+                    change.text,
+                    history,
+                    tx?.isUserEvent('input.paragraph'),
+                  );
                 preferred.current = undefined;
               }
               projection.current = {
@@ -230,14 +327,30 @@ export function RevealEditor({
               !nativeChange &&
               !update.transactions.some((t) => t.annotation(external))
             ) {
+              history = undefined;
+              typingFormat = undefined;
               const location = selected();
               preferred.current =
                 location?.token.kind === 'text' ? location.token.span.id : undefined;
               current.current.onSelect(location?.token);
             }
+            if (viewRef.current?.hasFocus && (nativeChange || update.selectionSet)) activate();
           }),
           EditorView.domEventHandlers({
+            focus: () => {
+              activate();
+              return false;
+            },
+            blur: () => {
+              history = undefined;
+              return false;
+            },
+            mousedown: () => {
+              history = undefined;
+              return false;
+            },
             compositionstart: () => {
+              history = undefined;
               composing.current = view.state.doc.toString();
               current.current.inline.composition(true);
               return false;
@@ -249,6 +362,19 @@ export function RevealEditor({
             keydown: (event, editor) => {
               if (event.isComposing || composing.current !== undefined) return false;
               const command = editorCommand(event, current.current.inline.keymap);
+              if (
+                command === 'format.bold' ||
+                command === 'format.italic' ||
+                command === 'format.underline'
+              ) {
+                event.preventDefault();
+                const key =
+                  command === 'format.bold' ? 'b' : command === 'format.italic' ? 'i' : 'u';
+                // Route keyboard and toolbar actions through the same active editor target.
+                activate();
+                applyShortcut.current?.(key);
+                return true;
+              }
               const deleting =
                 command === 'text.deleteBackward' || command === 'text.deleteForward';
               if (command === 'paragraph.split' || deleting) {
@@ -267,8 +393,20 @@ export function RevealEditor({
                   editor.dispatch({
                     changes: { ...range, insert: text },
                     selection: { anchor: range.from + text.length },
-                    userEvent: deleting ? 'delete' : 'input',
+                    userEvent: deleting
+                      ? command === 'text.deleteBackward'
+                        ? 'delete.backward'
+                        : 'delete.forward'
+                      : 'input.paragraph',
                   });
+                return true;
+              }
+              if (
+                (event.ctrlKey || event.metaKey) &&
+                !event.altKey &&
+                ['b', 'i', 'u'].includes(event.key.toLowerCase())
+              ) {
+                event.preventDefault();
                 return true;
               }
               // An unbound editing key must not fall through to browser behavior.
@@ -370,6 +508,8 @@ export function RevealEditor({
         inline.restore !== lastRestore.current &&
         inline.restore.origin === origin();
       if (restoreSelection) {
+        history = undefined;
+        typingFormat = undefined;
         anchor = inline.restore!.anchor;
         head = inline.restore!.head;
         lastRestore.current = inline.restore;
@@ -397,6 +537,7 @@ export function RevealEditor({
         annotations: external.of(true),
       });
       if (requestFocus || restoreSelection) view.focus();
+      if (view.hasFocus) activate();
     };
     sync.current();
     return () => {

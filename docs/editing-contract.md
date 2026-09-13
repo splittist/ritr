@@ -80,7 +80,10 @@ whole runs move to the appropriate paragraph with their XML and identities intac
 Only a split inside a run creates a second run; its surviving original text keeps
 its identity. Empty half-runs/text elements are not generated. Unchanged following
 runs keep their identities. The new paragraph copies the existing paragraph settings,
-including style and numbering; it does not apply a style's `next` rule or exit a list.
+including style and numbering. A dedicated Enter at a non-list paragraph's end
+applies its declared `next` style if it names an existing paragraph style. Middle
+splits and pasted breaks retain the current style. List items continue their existing
+numbering; automatic empty-item exit is not yet implemented.
 The split run's formatting is copied to its new half. New paragraph wrappers do not
 duplicate source paragraph IDs or unrelated attributes.
 
@@ -95,8 +98,12 @@ Ordinary empty paragraphs are editable. Existing empty run formatting is reused;
 otherwise paragraph-mark run properties supply the initial typing format. Deletion
 retains the first selected run's typing format for subsequent input at the same caret.
 Undo/redo restores package snapshots, source identities, and the logical selection
-for direct edits. History currently records each native input transaction separately,
-without word-level typing coalescing. Escape does not discard already committed input.
+for direct edits. Adjacent typing or same-direction deletion shares an undo entry
+until a pause longer than one second, selection/caret movement, focus change, paste,
+composition, formatting, or paragraph command. Save, undo, redo, and intervening
+workspace transactions seal the previous group. Each input still commits and advances
+the revision immediately; merging history retains the first before-snapshot and last
+after-snapshot. Escape does not discard already committed input.
 
 Reveal Codes orders tags at the same text offset in source order, so adjacent runs
 appear as siblings rather than as nested opening and closing tags.
@@ -152,8 +159,8 @@ Example:
 }
 ```
 
-Editor command IDs are `paragraph.split`, `text.deleteBackward`, and
-`text.deleteForward`. The earlier `text.edit` and draft-history IDs are retired.
+Editor command IDs include `paragraph.split`, `text.deleteBackward`,
+`text.deleteForward`, `format.bold`, `format.italic`, and `format.underline`. The earlier `text.edit` and draft-history IDs are retired.
 Chords support Ctrl/Mod (either Control or Meta), Meta, Alt, and Shift. These are
 simultaneous chords; sequential bindings such as Ctrl+K then Ctrl+C are not implemented.
 
@@ -189,7 +196,22 @@ word-only, heavy, and compound variants are approximate. Font families and sizes
 from the document are intentionally ignored. Native inline editing keeps the formatted projection in place.
 
 The palette follows [OOXML HighlightColorValues](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.highlightcolorvalues?view=openxml-3.0.1).
-This is display support; formatting mutation commands remain future work.
+The formatting toolbar applies bold, italic, underline, RGB/automatic color, and
+OOXML highlighting/none to a text selection. Ctrl+B/I/U invoke the same toggles and
+are remappable independently of commands. A mixed boolean selection toggles on;
+a uniformly enabled selection toggles off. Formatting is an atomic workspace edit,
+with undo/redo restoring selection and source snapshots. Only selection boundaries
+split runs; full selected runs and unaffected child identities remain intact.
+Already-effective formatting is a no-op, avoiding a new run per typed character.
+Protected text, selected objects, invalid colors, and surrogate-boundary selections
+are refused before publication. Original fonts, sizes, and unrelated run properties
+remain preserved.
+
+At a collapsed caret, formatting choices are local typing overrides and do not dirty
+the document until text is entered. The inserted text and its format commit together.
+Caret movement and history restoration clear overrides; a formatting change starts a
+new undo group. Formatting across paragraph breaks affects selected text, not the
+paragraph mark or list definitions.
 
 ## Paragraph display
 
@@ -246,7 +268,7 @@ preserved but never fetched. This is not full OPC/OOXML schema validation.
 
 ## Not implemented yet
 
-Unrestricted paragraph restructuring; direct formatting changes; list,
+Unrestricted paragraph restructuring; automatic empty-list exit; list,
 table, hyperlink, and section restructuring; full style/layout resolution and
 exotic numbering formats;
 comment or revision mutation; granular code-category filters;

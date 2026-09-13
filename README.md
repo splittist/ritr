@@ -48,6 +48,12 @@ formatting runs, and paste may introduce paragraph breaks. **Undo** reverses eac
 input operation. Structural editing stays within ordinary paragraphs in one
 container, including a table cell; protected content and section boundaries stop it.
 
+Use the formatting toolbar for bold, italic, underline, text color, and OOXML
+highlighting. With a selection it formats that text; at a caret it controls subsequent
+typing. Ctrl+B, Ctrl+I, and Ctrl+U are remappable editor commands. Continuous typing
+or deletion is grouped for undo, with a new step after a pause or caret movement.
+Enter at the end of a non-list paragraph uses its declared next style when available.
+
 The inspector and workspace replacement still use **Preview text edit** and
 **Apply transaction**. Clicking a code shows its source XML. Save As creates a new
 verified DOCX and refuses existing paths.
@@ -66,7 +72,8 @@ Unavailable commands remain visible with an explanation.
 | Ctrl+Z | Undo a workspace transaction |
 | Ctrl+Y / Ctrl+Shift+Z | Redo a workspace transaction |
 | Ctrl+Shift+E | Toggle Reveal Codes |
-| Enter | Split paragraph |
+| Ctrl+B / Ctrl+I / Ctrl+U | Toggle bold / italic / underline |
+| Enter | Split paragraph; use next style at paragraph end |
 | Backspace / Delete | Delete text or join at a paragraph edge |
 
 Inside text fields, undo/redo shortcuts retain native text-editing behavior.
@@ -84,7 +91,7 @@ defaults. Changes apply immediately and persist locally.
 - Snapshot-owned source identities, retained through targeted XML patches and undo/redo.
 - Body, header/footer, note and comment stories, source-bound text, formatting
   inspection, tables/hyperlinks, revision boundaries, and opaque content codes.
-- Fixed-width text with bold, italic, underline, RGB color, and OOXML highlighting.
+- Fixed-width text with editable bold, italic, underline, RGB color, and OOXML highlighting.
 - Generated multilevel numbers and bullets, style-linked headings, restart and
   continuation handling, plus approximate paragraph and hanging indentation.
 - Table grids, horizontal/vertical merges, nested tables, approximate widths and
@@ -98,7 +105,7 @@ defaults. Changes apply immediately and persist locally.
 - Synthetic `docxfix` fixtures, preservation/command/save tests, and desktop
   end-to-end verification.
 
-This is a working document editor and workbench. Formatting changes, comment/revision editing,
+This is a working document editor and workbench. Automatic empty-list exit, comment/revision editing,
 paginated preview, and in-place saves are still future work.
 See the precise [editing contract](docs/editing-contract.md).
 

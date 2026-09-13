@@ -1,3 +1,4 @@
+import type { TextFormat } from './format';
 import type { Story, Token } from './document';
 
 export const tokenId = (token: Token) => (token.kind === 'text' ? token.span.id : token.id);
@@ -37,6 +38,10 @@ export function projectStory(story: Story, origin: string) {
   if (index < 0) throw new Error('The editing region is stale');
   return projectTokens(story.tokens.slice(index));
 }
+export interface InputHistory {
+  id: string;
+  kind: 'typing' | 'backspace' | 'delete';
+}
 export interface ProjectionEdit {
   documentId: string;
   storyId: string;
@@ -47,6 +52,10 @@ export interface ProjectionEdit {
   expectedRevision: number;
   /** Explicit ownership for an empty run or a boundary caret. */
   typingSpan?: string;
+  history?: InputHistory;
+  typingFormat?: TextFormat;
+  /** Dedicated Enter command, distinguished from pasted paragraph breaks. */
+  enter?: boolean;
 }
 
 export interface ProjectionSelection {

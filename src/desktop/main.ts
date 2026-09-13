@@ -104,6 +104,15 @@ app
       for (const { file, bytes } of files) workspace.open(basename(file), bytes);
       return snapshot();
     });
+    handle('formatProjection', (edit: Parameters<Workspace['applyFormat']>[0]) => {
+      workspace.applyFormat({
+        ...edit,
+        documentId: string(edit.documentId),
+        storyId: string(edit.storyId),
+        origin: string(edit.origin),
+      });
+      return snapshot();
+    });
     handle('editProjection', (edit: Parameters<Workspace['applyProjection']>[0]) => {
       workspace.applyProjection({
         ...edit,

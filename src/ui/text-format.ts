@@ -1,24 +1,7 @@
 import type { TextSpan } from '../engine/document';
 
-/** ST_Highlight is a fixed palette, distinct from arbitrary run shading (w:shd). */
-export const highlightColors: Readonly<Record<string, string>> = {
-  black: '#000000',
-  blue: '#0000ff',
-  cyan: '#00ffff',
-  green: '#00ff00',
-  magenta: '#ff00ff',
-  red: '#ff0000',
-  yellow: '#ffff00',
-  white: '#ffffff',
-  darkBlue: '#000080',
-  darkCyan: '#008080',
-  darkGreen: '#008000',
-  darkMagenta: '#800080',
-  darkRed: '#800000',
-  darkYellow: '#808000',
-  darkGray: '#808080',
-  lightGray: '#c0c0c0',
-};
+import { highlightColors } from '../engine/format';
+export { highlightColors } from '../engine/format';
 const on = (value?: string) => value === 'on' || value === 'true' || value === '1';
 const underlines: Readonly<Record<string, string>> = {
   on: 'solid',

@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { DesktopApi } from './protocol';
 
 const api: DesktopApi = {
+  formatProjection: (edit) => ipcRenderer.invoke('ritr:formatProjection', edit),
   editProjection: (edit) => ipcRenderer.invoke('ritr:editProjection', edit),
   snapshot: () => ipcRenderer.invoke('ritr:snapshot'),
   open: () => ipcRenderer.invoke('ritr:open'),

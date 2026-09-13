@@ -225,3 +225,19 @@ objects survive structural edits unchanged. Cells, sections, fields, and review
 structures enforce explicit boundaries. Empty paragraphs reuse existing
 run/paragraph-mark formatting.
 Inspector and workspace replacements retain the explicit preview/commit workflow.
+
+
+### Implemented slice: grouped undo, direct formatting, and next-style Enter
+
+Typing and repeated deletion group into bounded undo entries without delaying
+source commits. Caret/focus movement, pauses, paste, composition, formatting,
+paragraph edits, saves, and history operations establish boundaries.
+
+The toolbar and remappable Ctrl+B/I/U apply direct text formatting to selections
+or subsequent typing. Run isolation preserves surviving source identities, unrelated
+properties and package parts, without per-character run fragmentation. RGB color,
+automatic color, and the fixed OOXML highlight palette are supported.
+
+Enter at a non-list paragraph's end follows a valid declared next style. Middle
+splits, paste and list continuation retain current paragraph settings. Automatic
+empty-list exit and broader structural editing remain separate future slices.

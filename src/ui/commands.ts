@@ -1,4 +1,10 @@
-export type EditorCommandId = 'text.deleteBackward' | 'text.deleteForward' | 'paragraph.split';
+export type EditorCommandId =
+  | 'format.bold'
+  | 'format.italic'
+  | 'format.underline'
+  | 'text.deleteBackward'
+  | 'text.deleteForward'
+  | 'paragraph.split';
 
 export interface CommandContext {
   connected: boolean;

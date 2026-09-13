@@ -1,5 +1,7 @@
+import { formatProjection, type FormatEdit } from './format-edit';
+import { validateFormat } from './format';
 import { editProjection } from './paragraph-edit';
-import type { ProjectionEdit, ProjectionSelection } from './projection';
+import { projectStory, type ProjectionEdit, type ProjectionSelection } from './projection';
 import {
   resolveTextRange,
   replacePieces,
@@ -49,6 +51,7 @@ interface Entry {
   current: DocxPackage;
 }
 interface Transaction {
+  history?: { id: string; kind: string; barrier: number };
   selectionBefore?: ProjectionSelection;
   selectionAfter?: ProjectionSelection;
   label: string;
@@ -75,6 +78,7 @@ export class Workspace {
   private future: Transaction[] = [];
   private listeners = new Set<(event: WorkspaceEvent) => void>();
   private epoch = 0;
+  private historyBarrier = 0;
   private nextId = 1;
   subscribe(listener: (event: WorkspaceEvent) => void): () => void {
     this.listeners.add(listener);
@@ -84,7 +88,10 @@ export class Workspace {
   }
   private publish(type: WorkspaceEvent['type'], ids: string[]) {
     if (!['undo', 'redo'].includes(type)) this.selection = undefined;
-    if (type !== 'commit') this.typing = undefined;
+    if (type !== 'commit') {
+      this.typing = undefined;
+      this.historyBarrier++;
+    }
     this.epoch++;
     this.pending.clear();
     // Observer failures cannot turn a committed transaction into an apparent failure.
@@ -184,11 +191,52 @@ export class Workspace {
       edit.documentId === this.typing.documentId &&
       edit.storyId === this.typing.storyId &&
       edit.origin === this.typing.origin;
+    const selectedText = (() => {
+      const story = readDocument(entry.current).stories.find((s) => s.id === edit.storyId);
+      return story ? projectStory(story, edit.origin).text.slice(edit.from, edit.to) : '';
+    })();
+    const history = edit.history;
+    if (
+      history &&
+      (typeof history.id !== 'string' ||
+        !history.id.length ||
+        history.id.length > 200 ||
+        !['typing', 'backspace', 'delete'].includes(history.kind))
+    )
+      throw new Error('Invalid input history group');
+    const groupable =
+      history &&
+      !edit.text.includes('\n') &&
+      !selectedText.includes('\n') &&
+      (history.kind === 'typing'
+        ? edit.from === edit.to && !!edit.text
+        : !edit.text && edit.from < edit.to);
+    const previous = this.past.at(-1);
+    const previousCaret = previous?.selectionAfter;
+    const merge =
+      groupable &&
+      previous?.history?.id === history.id &&
+      previous.history.kind === history.kind &&
+      previous.history.barrier === this.historyBarrier &&
+      previous.after.get(entry.id) === entry.current &&
+      previousCaret?.documentId === edit.documentId &&
+      previousCaret.storyId === edit.storyId &&
+      previousCaret.origin === edit.origin &&
+      previousCaret.head === (history.kind === 'backspace' ? edit.to : edit.from);
     const result = editProjection(entry.current, {
       ...edit,
       typingSpan: edit.typingSpan ?? (continuation ? this.typing?.spanId : undefined),
     });
-    const after = result.pkg;
+    if (edit.typingFormat) validateFormat(edit.typingFormat);
+    const after =
+      edit.typingFormat && edit.text.replace(/\n/g, '')
+        ? formatProjection(result.pkg, {
+            ...edit,
+            from: edit.from,
+            to: edit.from + edit.text.length,
+            format: edit.typingFormat,
+          })
+        : result.pkg;
     if (after === entry.current) return;
     DocxPackage.open(after.save());
     const id = `change-${this.nextId++}`;
@@ -198,6 +246,7 @@ export class Workspace {
       epoch: this.epoch,
       preview: { id, label, edits: [], skipped: 0 },
       transaction: {
+        history: groupable ? { ...history, barrier: this.historyBarrier } : undefined,
         label,
         selectionBefore: {
           documentId: edit.documentId,
@@ -217,7 +266,7 @@ export class Workspace {
         after: new Map([[entry.id, after]]),
       },
     });
-    this.commit(id);
+    this.commitStaged(id, !!merge);
     this.typing = {
       documentId: edit.documentId,
       storyId: edit.storyId,
@@ -226,6 +275,37 @@ export class Workspace {
       head: edit.from + edit.text.length,
       spanId: result.typingSpan,
     };
+  }
+  applyFormat(edit: FormatEdit): void {
+    const entry = this.entry(edit.documentId);
+    if (entry.revision !== edit.expectedRevision)
+      throw new Error('The formatting selection is stale');
+    const after = formatProjection(entry.current, edit);
+    if (after === entry.current) return;
+    DocxPackage.open(after.save());
+    const selection = {
+      documentId: edit.documentId,
+      storyId: edit.storyId,
+      origin: edit.origin,
+      anchor: edit.from,
+      head: edit.to,
+    };
+    const id = `change-${this.nextId++}`;
+    this.pending.clear();
+    this.pending.set(id, {
+      epoch: this.epoch,
+      preview: { id, label: 'Format text', edits: [], skipped: 0 },
+      transaction: {
+        label: 'Format text',
+        before: new Map([[entry.id, entry.current]]),
+        after: new Map([[entry.id, after]]),
+        selectionBefore: selection,
+        selectionAfter: selection,
+      },
+    });
+    this.commit(id);
+    this.typing = undefined;
+    this.selection = selection;
   }
   previewRange(edit: {
     documentId: string;
@@ -360,6 +440,9 @@ export class Workspace {
     return preview;
   }
   commit(previewId: string): void {
+    this.commitStaged(previewId);
+  }
+  private commitStaged(previewId: string, merge = false): void {
     const staged = this.pending.get(previewId);
     if (!staged || staged.epoch !== this.epoch)
       throw new Error('Preview is stale; create a new preview');
@@ -369,6 +452,11 @@ export class Workspace {
       const e = this.entry(id);
       e.current = pkg;
       e.revision++;
+    }
+    if (merge) {
+      const previous = this.past.pop()!;
+      staged.transaction.before = previous.before;
+      staged.transaction.selectionBefore = previous.selectionBefore;
     }
     this.past.push(staged.transaction);
     this.future = [];

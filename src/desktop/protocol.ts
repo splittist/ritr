@@ -1,3 +1,4 @@
+import type { FormatEdit } from '../engine/format-edit';
 import type { ProjectionEdit, ProjectionSelection } from '../engine/projection';
 import type { TextPiece } from '../engine/text-range';
 import type { ChangePreview, OpenDocument, SearchMatch, TextEdit } from '../engine/workspace';
@@ -10,6 +11,7 @@ export interface Snapshot {
   canRedo: boolean;
 }
 export interface DesktopApi {
+  formatProjection(edit: FormatEdit): Promise<Snapshot>;
   editProjection(edit: ProjectionEdit): Promise<Snapshot>;
   snapshot(): Promise<Snapshot>;
   open(): Promise<Snapshot>;
