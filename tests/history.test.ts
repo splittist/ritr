@@ -41,7 +41,7 @@ test('typing bursts undo and redo atomically with original and final caret posit
   w.undo();
   assert.equal(text(), 'XYZabcd', 'Redo seals the old group');
 });
-test('repeated deletion groups by direction and preserves the original selection', () => {
+test('repeated deletion groups by direction and restores the original caret', () => {
   for (const kind of ['backspace', 'delete'] as const) {
     const { w, edit, text } = setup();
     const history = { id: 'delete', kind };
@@ -51,6 +51,8 @@ test('repeated deletion groups by direction and preserves the original selection
     w.undo();
     assert.equal(text(), 'abcd');
     assert.equal(w.canUndo, false);
+    assert.equal(w.selection?.anchor, kind === 'backspace' ? 4 : 0);
+    assert.equal(w.selection?.head, kind === 'backspace' ? 4 : 0);
   }
 });
 test('save, explicit boundaries, nonadjacent edits, paste and paragraph changes seal history groups', () => {

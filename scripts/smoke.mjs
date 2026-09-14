@@ -418,6 +418,45 @@ try {
     'Code widgets must follow source order, including adjacent Run boundaries',
   );
   await page.screenshot({ path: join(output, 'text-formatting.png'), fullPage: true });
+  // Word deletion uses source transactions in either code view and groups repeats for undo.
+  for (const codes of [false, true]) {
+    await page.getByLabel('Reveal codes', { exact: true }).setChecked(codes);
+    await page
+      .locator('.editable-span')
+      .filter({ hasText: /^needle$/ })
+      .click();
+    await page.keyboard.press('End');
+    await page.keyboard.press('Control+Backspace');
+    await page.keyboard.press('Control+Backspace');
+    await page.waitForFunction(async () => {
+      const d = (await window.ritr.snapshot()).documents.find((d) => d.name === 'cross-run.docx');
+      return d.model.stories[0].tokens.find((t) => t.kind === 'text').span.text === 'Cross-';
+    });
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await page
+      .locator('.editable-span')
+      .filter({ hasText: /^Cross-run $/ })
+      .waitFor();
+    await page
+      .locator('.editable-span')
+      .filter({ hasText: /^needle$/ })
+      .waitFor();
+    await page
+      .locator('.editable-span')
+      .filter({ hasText: /^needle$/ })
+      .click();
+    await page.keyboard.press('Home');
+    await page.keyboard.press('Control+Delete');
+    await page.waitForFunction(async () => {
+      const d = (await window.ritr.snapshot()).documents.find((d) => d.name === 'cross-run.docx');
+      return d.model.stories[0].tokens.find((t) => t.kind === 'text').span.text === '-run ';
+    });
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await page
+      .locator('.editable-span')
+      .filter({ hasText: /^Cross-run $/ })
+      .waitFor();
+  }
   // Native text input replaces selections without a draft field or apply step.
   for (const codes of [false, true]) {
     await page.getByLabel('Reveal codes', { exact: true }).setChecked(codes);

@@ -4,6 +4,8 @@ export type EditorCommandId =
   | 'format.underline'
   | 'text.deleteBackward'
   | 'text.deleteForward'
+  | 'text.deleteWordBackward'
+  | 'text.deleteWordForward'
   | 'paragraph.split'
   | 'list.indent'
   | 'list.outdent';

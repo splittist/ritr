@@ -14,7 +14,7 @@ import {
 } from '../engine/projection';
 import { textStyle } from './text-format';
 import { editorCommand } from './keymap';
-import { deletionRange } from './inline-edit';
+import { deletionRange, wordDeletionRange } from './inline-edit';
 import { paragraphGeometry, paragraphLineStyle } from './paragraph-layout';
 import type { DirectEditing } from './direct-edit';
 
@@ -457,17 +457,23 @@ export function RevealEditor({
                 changeList('enter');
                 return true;
               }
+              const wordDeleting =
+                command === 'text.deleteWordBackward' || command === 'text.deleteWordForward';
+              const backward =
+                command === 'text.deleteBackward' || command === 'text.deleteWordBackward';
               const deleting =
-                command === 'text.deleteBackward' || command === 'text.deleteForward';
+                wordDeleting ||
+                command === 'text.deleteBackward' ||
+                command === 'text.deleteForward';
               if (command === 'paragraph.split' || deleting) {
                 event.preventDefault();
                 const selection = editor.state.selection.main;
                 const range = deleting
-                  ? deletionRange(
+                  ? (wordDeleting ? wordDeletionRange : deletionRange)(
                       editor.state.doc.toString(),
                       selection.from,
                       selection.to,
-                      command === 'text.deleteBackward',
+                      backward,
                     )
                   : { from: selection.from, to: selection.to };
                 const text = deleting ? '' : '\n';
@@ -476,7 +482,7 @@ export function RevealEditor({
                     changes: { ...range, insert: text },
                     selection: { anchor: range.from + text.length },
                     userEvent: deleting
-                      ? command === 'text.deleteBackward'
+                      ? backward
                         ? 'delete.backward'
                         : 'delete.forward'
                       : 'input.paragraph',
@@ -494,8 +500,7 @@ export function RevealEditor({
               // An unbound editing key must not fall through to browser behavior.
               if (
                 ['Enter', 'Backspace', 'Delete'].includes(event.key) &&
-                !event.ctrlKey &&
-                !event.metaKey &&
+                ((!event.ctrlKey && !event.metaKey) || event.key !== 'Enter') &&
                 !event.altKey
               ) {
                 event.preventDefault();

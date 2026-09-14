@@ -276,8 +276,8 @@ export class Workspace {
           documentId: edit.documentId,
           storyId: edit.storyId,
           origin: edit.origin,
-          anchor: edit.from,
-          head: edit.to,
+          anchor: groupable && history.kind === 'backspace' ? edit.to : edit.from,
+          head: groupable && history.kind === 'delete' ? edit.from : edit.to,
         },
         selectionAfter: {
           documentId: edit.documentId,

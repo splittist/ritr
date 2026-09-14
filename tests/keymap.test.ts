@@ -44,3 +44,20 @@ test('workspace history defers to fields and paragraph editing commands can be r
   );
   assert.equal(editorCommand({ ...event, key: 'Backspace', ctrlKey: false }, map), undefined);
 });
+
+test('word deletion has independent remappable commands and remains scoped to the editor', () => {
+  const defaults = resolveKeymap();
+  assert.equal(editorCommand({ ...event, key: 'Backspace' }, defaults), 'text.deleteWordBackward');
+  assert.equal(editorCommand({ ...event, key: 'Delete' }, defaults), 'text.deleteWordForward');
+  assert.equal(shortcutCommand({ ...event, key: 'Backspace' }, true, defaults), undefined);
+  const custom = resolveKeymap({
+    'text.deleteWordBackward': ['Alt+w'],
+    'text.deleteWordForward': [],
+  });
+  assert.equal(editorCommand({ ...event, key: 'Backspace' }, custom), undefined);
+  assert.equal(editorCommand({ ...event, key: 'Delete' }, custom), undefined);
+  assert.equal(
+    editorCommand({ ...event, key: 'w', ctrlKey: false, altKey: true }, custom),
+    'text.deleteWordBackward',
+  );
+});

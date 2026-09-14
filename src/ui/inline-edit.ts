@@ -101,3 +101,29 @@ export function deletionRange(text: string, from: number, to: number, backward: 
     to: boundaries.find((offset) => offset >= to) ?? text.length,
   };
 }
+
+/** Skip adjacent horizontal space, then delete one Unicode word or punctuation segment.
+ * Paragraph boundaries are separate joins; protected objects are never consumed.
+ */
+export function wordDeletionRange(text: string, from: number, to: number, backward: boolean) {
+  if (from !== to) return deletionRange(text, from, to, backward);
+  const segments = [...new Intl.Segmenter(undefined, { granularity: 'word' }).segment(text)];
+  const ordered = backward ? segments.reverse() : segments;
+  let edge = from;
+  for (const segment of ordered) {
+    const start = segment.index,
+      end = start + segment.segment.length;
+    if (backward ? start >= edge : end <= edge) continue;
+    const part = backward ? text.slice(start, edge) : text.slice(edge, end);
+    // Stop before structure after whitespace; at a paragraph edge, join only.
+    if (/[\n\ufffc]/u.test(part)) {
+      const adjacent = text[backward ? edge - 1 : edge];
+      if (edge === from && adjacent === '\n') edge += backward ? -1 : 1;
+      break;
+    }
+    edge = backward ? start : end;
+    if (!/^[^\S\r\n]+$/u.test(part)) break;
+  }
+  if (edge === from) return { from, to };
+  return deletionRange(text, Math.min(from, edge), Math.max(from, edge), backward);
+}

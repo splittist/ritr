@@ -21,6 +21,8 @@ export const defaultKeymap: readonly KeyBinding[] = [
   { command: 'search.focus', key: 'Ctrl+F', scope: 'global' },
   { command: 'transaction.apply', key: 'Ctrl+Shift+Enter', scope: 'global' },
   { command: 'view.codes', key: 'Ctrl+Shift+E', scope: 'global' },
+  { command: 'text.deleteWordBackward', key: 'Ctrl+Backspace', scope: 'editor' },
+  { command: 'text.deleteWordForward', key: 'Ctrl+Delete', scope: 'editor' },
   { command: 'text.deleteBackward', key: 'Backspace', scope: 'editor' },
   { command: 'text.deleteForward', key: 'Delete', scope: 'editor' },
   { command: 'paragraph.split', key: 'Enter', scope: 'editor' },

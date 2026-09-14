@@ -281,3 +281,15 @@ comment or revision mutation; granular code-category filters;
 paginated preview; in-place saves; persisted workspaces or undo journals;
 installer packaging. The desktop is an inspector/editor prototype, not yet a
 complete replacement for Word.
+
+
+## Keyboard word deletion
+
+`text.deleteWordBackward` and `text.deleteWordForward` default to Ctrl+Backspace
+and Ctrl+Delete. They remove a selection as selected; at a caret they skip adjacent
+horizontal whitespace then consume one Unicode word or punctuation segment.
+Grapheme boundaries preserve combining marks and emoji. A paragraph boundary is
+joined separately without consuming text from the neighbouring paragraph.
+Protected object slots stop collapsed word deletion; selections retain the engine's
+normal protection checks. Zero-width source anchors retain their existing guards.
+These commands use the ordinary transaction queue and repeated-deletion undo groups.

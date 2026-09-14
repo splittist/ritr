@@ -246,3 +246,11 @@ future slice.
 UI direction: prioritise named, remappable keyboard commands and the command
 palette, with minimal chrome. New engine capabilities should not require new
 persistent toolbar controls.
+
+
+### Implemented slice: keyboard word deletion
+
+Named, remappable backward/forward word-deletion commands use Unicode segmentation,
+source-backed transactions and grouped undo. Coverage includes words crossing run
+formatting, grapheme integrity, paragraph/object boundaries, remapping, and desktop
+input with codes hidden and revealed. No persistent UI controls are added.

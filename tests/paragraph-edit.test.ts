@@ -1,3 +1,4 @@
+import { wordDeletionRange } from '../src/ui/inline-edit';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Workspace } from '../src/engine/workspace';
@@ -418,4 +419,33 @@ test('Enter at paragraph end uses a valid next style, while middle splits, paste
       scenario === 'end' ? 'Body' : 'Heading',
     );
   }
+});
+
+test('word deletion spanning differently formatted runs preserves surviving formatting and package identity on undo', () => {
+  const { w, id, edit, text } = setup(
+    '<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>hel</w:t></w:r><w:r><w:rPr><w:i/></w:rPr><w:t>lo tail</w:t></w:r></w:p>',
+  );
+  const before = w.package(id);
+  const ids = spans(w.document(id).model).map((s) => s.id);
+  const range = wordDeletionRange(text(), 0, 0, false);
+  edit(range.from, range.to, '');
+  assert.equal(text(), ' tail');
+  const afterSpans = spans(w.document(id).model);
+  assert.deepEqual(
+    afterSpans.map((s) => s.id),
+    ids,
+  );
+  assert.equal(afterSpans[0]!.direct.b, 'on');
+  assert.equal(afterSpans[1]!.direct.i, 'on');
+  assert.deepEqual(
+    w
+      .report(id)
+      .filter((p) => p.status !== 'unchanged')
+      .map((p) => p.part),
+    ['word/document.xml'],
+  );
+  w.undo();
+  assert.equal(w.package(id), before);
+  assert.equal(w.selection?.anchor, 0);
+  assert.equal(w.selection?.head, 5);
 });

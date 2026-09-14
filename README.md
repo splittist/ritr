@@ -57,6 +57,9 @@ In an empty list item, Enter moves up one level, or exits a top-level list.
 Alt+Shift+Right and Alt+Shift+Left increase or decrease list level, including across
 selected list paragraphs. Both commands are remappable and available in the palette.
 Tab retains its existing focus/navigation behaviour.
+Ctrl+Backspace and Ctrl+Delete delete the preceding or following word across
+formatting runs. Adjacent horizontal space is included; paragraph boundaries are
+separate joins and protected objects stop deletion. These commands are remappable.
 
 The inspector and workspace replacement still use **Preview text edit** and
 **Apply transaction**. Clicking a code shows its source XML. Save As creates a new
