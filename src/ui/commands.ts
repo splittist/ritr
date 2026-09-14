@@ -4,7 +4,9 @@ export type EditorCommandId =
   | 'format.underline'
   | 'text.deleteBackward'
   | 'text.deleteForward'
-  | 'paragraph.split';
+  | 'paragraph.split'
+  | 'list.indent'
+  | 'list.outdent';
 
 export interface CommandContext {
   connected: boolean;
@@ -14,6 +16,7 @@ export interface CommandContext {
   canRedo: boolean;
   editReason?: string;
   selectionReason?: string;
+  listReason?: string;
   hasQuery: boolean;
   hasPreview: boolean;
   hasChanges: boolean;
@@ -32,6 +35,19 @@ const searchRequired = (c: CommandContext) =>
 
 /** Shared presentation and availability for buttons, shortcuts, and the palette. */
 export const commands = [
+  {
+    id: 'list.indent',
+    label: 'Increase list level',
+    description: 'Move selected list items one level deeper.',
+    unavailable: (c: CommandContext) => documentRequired(c) ?? c.listReason,
+  },
+  {
+    id: 'list.outdent',
+    label: 'Decrease list level',
+    description: 'Move list items up one level, or exit a top-level list.',
+    unavailable: (c: CommandContext) => documentRequired(c) ?? c.listReason,
+  },
+
   {
     id: 'commands.open',
     label: 'Show commands',

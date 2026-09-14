@@ -1,3 +1,4 @@
+import { editListProjection } from './list-edit';
 import { formatProjection, type FormatEdit } from './format-edit';
 import { validateFormat } from './format';
 import { editProjection } from './paragraph-edit';
@@ -191,10 +192,15 @@ export class Workspace {
       edit.documentId === this.typing.documentId &&
       edit.storyId === this.typing.storyId &&
       edit.origin === this.typing.origin;
-    const selectedText = (() => {
-      const story = readDocument(entry.current).stories.find((s) => s.id === edit.storyId);
-      return story ? projectStory(story, edit.origin).text.slice(edit.from, edit.to) : '';
-    })();
+    const inputStory = readDocument(entry.current).stories.find((s) => s.id === edit.storyId);
+    const projection = inputStory && projectStory(inputStory, edit.origin);
+    const selectedText = projection?.text.slice(edit.from, edit.to) ?? '';
+    const emptyListEnter =
+      edit.enter === true &&
+      edit.text === '\n' &&
+      edit.from === edit.to &&
+      projection?.paragraphs.some((p) => p.from === edit.from && p.to === edit.from && p.numbering);
+    const listChange = edit.listAction !== undefined || emptyListEnter;
     const history = edit.history;
     if (
       history &&
@@ -205,6 +211,7 @@ export class Workspace {
     )
       throw new Error('Invalid input history group');
     const groupable =
+      !listChange &&
       history &&
       !edit.text.includes('\n') &&
       !selectedText.includes('\n') &&
@@ -223,10 +230,26 @@ export class Workspace {
       previousCaret.storyId === edit.storyId &&
       previousCaret.origin === edit.origin &&
       previousCaret.head === (history.kind === 'backspace' ? edit.to : edit.from);
-    const result = editProjection(entry.current, {
-      ...edit,
-      typingSpan: edit.typingSpan ?? (continuation ? this.typing?.spanId : undefined),
-    });
+    const result: {
+      pkg: DocxPackage;
+      typingSpan?: string;
+      selection?: Pick<ProjectionSelection, 'anchor' | 'head'>;
+      label?: string;
+    } = listChange
+      ? editListProjection(
+          entry.current,
+          emptyListEnter && edit.listAction === undefined
+            ? { ...edit, text: '', listAction: 'enter' }
+            : edit,
+        )
+      : editProjection(entry.current, {
+          ...edit,
+          typingSpan: edit.typingSpan ?? (continuation ? this.typing?.spanId : undefined),
+        });
+    const selectionAfter = result.selection ?? {
+      anchor: edit.from + edit.text.length,
+      head: edit.from + edit.text.length,
+    };
     if (edit.typingFormat) validateFormat(edit.typingFormat);
     const after =
       edit.typingFormat && edit.text.replace(/\n/g, '')
@@ -240,7 +263,8 @@ export class Workspace {
     if (after === entry.current) return;
     DocxPackage.open(after.save());
     const id = `change-${this.nextId++}`;
-    const label = edit.text.includes('\n') ? 'Split paragraph' : 'Edit document text';
+    const label =
+      result.label ?? (edit.text.includes('\n') ? 'Split paragraph' : 'Edit document text');
     this.pending.clear();
     this.pending.set(id, {
       epoch: this.epoch,
@@ -259,8 +283,7 @@ export class Workspace {
           documentId: edit.documentId,
           storyId: edit.storyId,
           origin: edit.origin,
-          anchor: edit.from + edit.text.length,
-          head: edit.from + edit.text.length,
+          ...selectionAfter,
         },
         before: new Map([[entry.id, entry.current]]),
         after: new Map([[entry.id, after]]),
@@ -271,8 +294,7 @@ export class Workspace {
       documentId: edit.documentId,
       storyId: edit.storyId,
       origin: edit.origin,
-      anchor: edit.from + edit.text.length,
-      head: edit.from + edit.text.length,
+      ...selectionAfter,
       spanId: result.typingSpan,
     };
   }

@@ -3,7 +3,15 @@ import { useEffect, useRef } from 'react';
 import { Annotation, EditorState, StateEffect, StateField } from '@codemirror/state';
 import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view';
 import type { CodeToken, Story, Token } from '../engine/document';
-import { projectTokens, tokenId, type InputHistory } from '../engine/projection';
+import {
+  projectTokens,
+  tokenId,
+  selectedParagraphs,
+  mapParagraphs,
+  mapListAction,
+  type ListAction,
+  type InputHistory,
+} from '../engine/projection';
 import { textStyle } from './text-format';
 import { editorCommand } from './keymap';
 import { deletionRange } from './inline-edit';
@@ -132,6 +140,45 @@ export function RevealEditor({
         )
       );
     };
+    const changeList = (action: ListAction) => {
+      if (!alive || current.current.inline.busy || composing.current !== undefined) return;
+      const view = viewRef.current!,
+        selection = view.state.selection.main;
+      const paragraphs = selectedParagraphs(
+        projection.current.paragraphs,
+        selection.from,
+        selection.to,
+      );
+      if (!paragraphs.length || paragraphs.some((p) => !p.numbering)) {
+        current.current.inline.message(
+          'Place the caret in a list item or select only list paragraphs.',
+        );
+        return;
+      }
+      if (action === 'indent' && paragraphs.some((p) => p.numbering!.level >= 8)) {
+        current.current.inline.message('This item is already at the deepest list level.');
+        return;
+      }
+      history = undefined;
+      projection.current = {
+        ...projection.current,
+        paragraphs: mapListAction(
+          projection.current.paragraphs,
+          selection.from,
+          selection.to,
+          action,
+        ),
+      };
+      current.current.inline.change({
+        origin: origin(),
+        from: selection.from,
+        to: selection.to,
+        text: '',
+        listAction: action,
+      });
+      activate();
+      view.focus();
+    };
     const activate = () => {
       const view = viewRef.current!;
       const selection = view.state.selection.main;
@@ -188,7 +235,17 @@ export function RevealEditor({
         view.focus();
       };
       applyShortcut.current = applyFormat;
+      const listParagraphs = selectedParagraphs(
+        projection.current.paragraphs,
+        selection.from,
+        selection.to,
+      );
       current.current.inline.activate({
+        list: changeList,
+        listReason:
+          listParagraphs.length && listParagraphs.every((p) => p.numbering)
+            ? undefined
+            : 'Place the caret in a list item or select only list paragraphs.',
         values,
         editable,
         apply: applyFormat,
@@ -312,8 +369,16 @@ export function RevealEditor({
                   );
                 preferred.current = undefined;
               }
+              let paragraphs = projection.current.paragraphs;
+              const paragraphChanges: { from: number; to: number; text: string }[] = [];
+              update.changes.iterChanges((from, to, _a, _b, inserted) =>
+                paragraphChanges.push({ from, to, text: inserted.toString() }),
+              );
+              for (const change of paragraphChanges.reverse())
+                paragraphs = mapParagraphs(paragraphs, change.from, change.to, change.text);
               projection.current = {
                 ...projection.current,
+                paragraphs,
                 text: update.state.doc.toString(),
                 locations: projection.current.locations.map((l) => ({
                   ...l,
@@ -373,6 +438,23 @@ export function RevealEditor({
                 // Route keyboard and toolbar actions through the same active editor target.
                 activate();
                 applyShortcut.current?.(key);
+                return true;
+              }
+              if (command === 'list.indent' || command === 'list.outdent') {
+                event.preventDefault();
+                changeList(command === 'list.indent' ? 'indent' : 'outdent');
+                return true;
+              }
+              if (
+                command === 'paragraph.split' &&
+                editor.state.selection.main.empty &&
+                projection.current.paragraphs.some(
+                  (p) =>
+                    p.from === editor.state.selection.main.from && p.to === p.from && p.numbering,
+                )
+              ) {
+                event.preventDefault();
+                changeList('enter');
                 return true;
               }
               const deleting =

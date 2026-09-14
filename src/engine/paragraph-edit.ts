@@ -28,7 +28,7 @@ const opening = (source: string, node: XmlNode) =>
 const newOpening = (source: string, node: XmlNode) =>
   `<${node.name}${(opening(source, node).match(/\s+xmlns(?::[^\s=]+)?\s*=\s*(?:"[^"]*"|'[^']*')/g) ?? []).join('')}>`;
 
-function editableParagraph(pkg: DocxPackage, story: Story, id: string) {
+export function editableParagraph(pkg: DocxPackage, story: Story, id: string) {
   const node = nodeIn(pkg, story.part, id);
   const parent = descendants(pkg.xml(story.part)).find((n) =>
     n.children.some((c) => c.id === node.id),

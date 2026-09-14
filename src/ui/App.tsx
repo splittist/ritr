@@ -195,6 +195,12 @@ export function App() {
     canUndo: state.canUndo,
     canRedo: state.canRedo,
     selectionReason,
+    listReason:
+      formatting?.target &&
+      formatting.documentId === document?.id &&
+      formatting.storyId === story?.id
+        ? formatting.target.listReason
+        : 'Place the caret in a list item.',
     editReason:
       selectionReason ??
       (selected?.kind === 'text' && draft === selected.span.text
@@ -205,6 +211,8 @@ export function App() {
     hasChanges: !!preview?.edits.length,
   };
   const actions: CommandActions = {
+    'list.indent': () => formatting?.target?.list('indent'),
+    'list.outdent': () => formatting?.target?.list('outdent'),
     'commands.open': () => {
       if (!paletteOpen) paletteFocus.current = captureCommandFocus();
       setPaletteOpen((open) => !open);
@@ -265,7 +273,7 @@ export function App() {
         busy: currentCommands.current.context.busy || running.current,
       }),
       () =>
-        id === 'commands.open'
+        id === 'commands.open' || id === 'list.indent' || id === 'list.outdent'
           ? currentCommands.current.actions[id]()
           : run(async () => {
               await currentCommands.current.actions[id]();

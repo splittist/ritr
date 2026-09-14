@@ -48,6 +48,7 @@ previews. Undo/redo moves whole transactions between two stacks.
 | `src/engine/document.ts` | Read-only semantic interpretation: stories, source-bound spans, code tokens, editing policy |
 | `src/engine/styles.ts` | Shared style index, inheritance chains, document defaults |
 | `src/engine/numbering.ts` | List definitions, style links, label formats and story counter streams |
+| `src/engine/list-edit.ts` | Guarded list-level changes and empty-item Enter |
 | `src/engine/paragraph.ts` | Paragraph list membership and indentation with property provenance |
 | `src/ui/paragraph-layout.ts` | Source indentation to bounded, approximate display geometry |
 | `src/engine/workspace.ts` | Exclusive mutation API: search, preview, commit, history, events, saved state |

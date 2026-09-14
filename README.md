@@ -53,6 +53,10 @@ highlighting. With a selection it formats that text; at a caret it controls subs
 typing. Ctrl+B, Ctrl+I, and Ctrl+U are remappable editor commands. Continuous typing
 or deletion is grouped for undo, with a new step after a pause or caret movement.
 Enter at the end of a non-list paragraph uses its declared next style when available.
+In an empty list item, Enter moves up one level, or exits a top-level list.
+Alt+Shift+Right and Alt+Shift+Left increase or decrease list level, including across
+selected list paragraphs. Both commands are remappable and available in the palette.
+Tab retains its existing focus/navigation behaviour.
 
 The inspector and workspace replacement still use **Preview text edit** and
 **Apply transaction**. Clicking a code shows its source XML. Save As creates a new
@@ -105,7 +109,7 @@ defaults. Changes apply immediately and persist locally.
 - Synthetic `docxfix` fixtures, preservation/command/save tests, and desktop
   end-to-end verification.
 
-This is a working document editor and workbench. Automatic empty-list exit, comment/revision editing,
+This is a working document editor and workbench. Comment/revision editing,
 paginated preview, and in-place saves are still future work.
 See the precise [editing contract](docs/editing-contract.md).
 

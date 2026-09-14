@@ -6,6 +6,8 @@ export interface KeyBinding {
   scope: 'global' | 'projection' | 'editor';
 }
 export const defaultKeymap: readonly KeyBinding[] = [
+  { command: 'list.indent', key: 'Alt+Shift+ArrowRight', scope: 'editor' },
+  { command: 'list.outdent', key: 'Alt+Shift+ArrowLeft', scope: 'editor' },
   { command: 'format.bold', key: 'Ctrl+B', scope: 'editor' },
   { command: 'format.italic', key: 'Ctrl+I', scope: 'editor' },
   { command: 'format.underline', key: 'Ctrl+U', scope: 'editor' },

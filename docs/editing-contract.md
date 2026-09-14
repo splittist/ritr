@@ -83,7 +83,13 @@ runs keep their identities. The new paragraph copies the existing paragraph sett
 including style and numbering. A dedicated Enter at a non-list paragraph's end
 applies its declared `next` style if it names an existing paragraph style. Middle
 splits and pasted breaks retain the current style. List items continue their existing
-numbering; automatic empty-item exit is not yet implemented.
+numbering. Enter on an empty nested list item decreases its level; at the top
+level it exits the list without inserting a paragraph. A pasted newline continues
+the list. Named list-level commands also operate on selections containing only
+list paragraphs within one container. They use existing level definitions and
+preserve direct indentation, runs, markers, and list definitions. Exiting uses an
+explicit numbering override so inherited style numbering does not reappear.
+Each list operation is a separate undo step, restoring the selection and properties.
 The split run's formatting is copied to its new half. New paragraph wrappers do not
 duplicate source paragraph IDs or unrelated attributes.
 
@@ -268,7 +274,7 @@ preserved but never fetched. This is not full OPC/OOXML schema validation.
 
 ## Not implemented yet
 
-Unrestricted paragraph restructuring; automatic empty-list exit; list,
+Unrestricted paragraph restructuring; list definition creation/editing,
 table, hyperlink, and section restructuring; full style/layout resolution and
 exotic numbering formats;
 comment or revision mutation; granular code-category filters;

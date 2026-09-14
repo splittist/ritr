@@ -239,5 +239,10 @@ properties and package parts, without per-character run fragmentation. RGB color
 automatic color, and the fixed OOXML highlight palette are supported.
 
 Enter at a non-list paragraph's end follows a valid declared next style. Middle
-splits, paste and list continuation retain current paragraph settings. Automatic
-empty-list exit and broader structural editing remain separate future slices.
+splits, paste and list continuation retain current paragraph settings. Empty-list Enter and bounded list-level editing are now implemented with atomic
+undo and preservation of list definitions. Broader structural editing remains a
+future slice.
+
+UI direction: prioritise named, remappable keyboard commands and the command
+palette, with minimal chrome. New engine capabilities should not require new
+persistent toolbar controls.

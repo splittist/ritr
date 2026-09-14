@@ -3,6 +3,8 @@ import type { FormatEdit } from '../engine/format-edit';
 import type { ProjectionEdit, ProjectionSelection } from '../engine/projection';
 import type { KeyBinding } from './keymap';
 export interface FormattingTarget {
+  list: (action: 'indent' | 'outdent') => void;
+  listReason?: string;
   apply: (format: TextFormat | 'b' | 'i' | 'u') => void;
   values: TextFormat;
   editable: boolean;
@@ -19,7 +21,15 @@ export interface DirectEditing {
   change: (
     edit: Pick<
       ProjectionEdit,
-      'origin' | 'from' | 'to' | 'text' | 'typingSpan' | 'history' | 'typingFormat' | 'enter'
+      | 'origin'
+      | 'from'
+      | 'to'
+      | 'text'
+      | 'typingSpan'
+      | 'history'
+      | 'typingFormat'
+      | 'enter'
+      | 'listAction'
     >,
   ) => void;
   message: (message: string) => void;

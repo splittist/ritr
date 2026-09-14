@@ -265,6 +265,75 @@ try {
   await page.screenshot({ path: join(output, 'numbering-codes.png'), fullPage: true });
   const codeLabels = await page.locator('.list-marker').allTextContents();
   assert.deepEqual(codeLabels, expectedLabels.slice(0, codeLabels.length));
+  // List commands work through the keyboard and palette with codes hidden.
+  await page.getByLabel('Reveal codes', { exact: true }).uncheck();
+  const listSnapshot = await page.evaluate(() => window.ritr.snapshot());
+  const listDoc =
+    listSnapshot.documents.find((d) => d.name === 'lists.docx') ?? listSnapshot.documents[3];
+  const listId = listDoc.id;
+  const listCount = listDoc.model.stories[0].paragraphs.length;
+  const waitList = async (index, level, count = listCount) => {
+    await page.waitForFunction(
+      async ({ listId, index, level, count }) => {
+        const d = (await window.ritr.snapshot()).documents.find((d) => d.id === listId);
+        return (
+          d.model.stories[0].paragraphs.length === count &&
+          (d.model.stories[0].paragraphs[index].numbering?.level ?? -1) === level
+        );
+      },
+      { listId, index, level, count },
+    );
+    await page.getByRole('button', { name: 'Undo', exact: true }).waitFor({ state: 'visible' });
+  };
+  await page
+    .locator('.editable-span')
+    .filter({ hasText: /^First obligation$/ })
+    .click();
+  await page.keyboard.press('Alt+Shift+ArrowRight');
+  await waitList(1, 1);
+  await page.keyboard.press('Control+Shift+P');
+  await searchCommands.fill('Decrease list level');
+  await searchCommands.press('Enter');
+  await waitList(1, 0);
+  await page.locator('.keymap-settings summary').click();
+  await keySettings.fill(JSON.stringify({ 'list.indent': ['Alt+l'] }));
+  await page.getByRole('button', { name: 'Apply keybindings' }).click();
+  await page.locator('.keymap-settings summary').click();
+  await page
+    .locator('.editable-span')
+    .filter({ hasText: /^First obligation$/ })
+    .click();
+  await page.keyboard.press('Alt+l');
+  await waitList(1, 1);
+  await page.keyboard.press('Alt+Shift+ArrowLeft');
+  await waitList(1, 0);
+  await page.locator('.keymap-settings summary').click();
+  await keySettings.fill('{}');
+  await page.getByRole('button', { name: 'Apply keybindings' }).click();
+  await page.locator('.keymap-settings summary').click();
+  await page
+    .locator('.editable-span')
+    .filter({ hasText: /^Second detailed obligation$/ })
+    .click();
+  await page.keyboard.press('End');
+  for (let i = 0; i < 3; i++) await page.keyboard.press('Enter');
+  await page.keyboard.type('After list');
+  await page
+    .locator('.editable-span')
+    .filter({ hasText: /^After list$/ })
+    .waitFor();
+  await waitList(5, -1, listCount + 1);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await page
+    .locator('.editable-span')
+    .filter({ hasText: /^After list$/ })
+    .waitFor({ state: 'detached' });
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await waitList(5, 0, listCount + 1);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await waitList(5, 1, listCount + 1);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await waitList(4, 1);
   await page.getByRole('button', { name: /tables.docx/ }).click();
   await page.getByRole('heading', { name: 'tables.docx', exact: true }).waitFor();
   await page.getByLabel('Reveal codes', { exact: true }).uncheck();
